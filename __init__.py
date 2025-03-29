@@ -1,7 +1,7 @@
 import bpy
 from pathlib import Path
-
-shadersBlend = 'E:/3D Modelling/SWTOR Assets Files/Shaders.blend'
+import os
+from .utils.addon_checks import requirements_checks
 
 def getNodeGroup(materials, group_name):
     for mat in materials:
@@ -100,6 +100,12 @@ class autoKoda(bpy.types.Operator):
             "UBER"     : "SWTOR - Uber Shader",
         }
 
+        prefs = bpy.context.preferences.addons[__name__].preferences
+        shadersBlend = prefs.shaders_blend_path
+        if not shadersBlend:
+            self.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
+            return {'CANCELLED'}
+
         selectedObj = bpy.context.active_object #Get selected object
 
         for node in heroGravitasNodeNames.values():
@@ -141,6 +147,22 @@ class autoKodaButton(bpy.types.Panel):
         self.layout.label(text = "panel what i made")
         self.layout.operator(autoKoda.bl_idname)
 
+class AutoKodaPreferences(bpy.types.AddonPreferences):
+    bl_idname = __name__.split('.')[-1]  # Extract the actual module name
+
+    shaders_blend_path: bpy.props.StringProperty(
+        name="Shaders Blend File",
+        description="Path to the .blend file containing the Koda shaders",
+        subtype='FILE_PATH'
+    )
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="Set the path to your shaders .blend file:")
+        layout.prop(self, "shaders_blend_path")  # File path selector
+
+
+
 bl_info = {
     "name": "Auto Koda",
     "author": "Koda",
@@ -150,10 +172,15 @@ bl_info = {
     "category": "Material",
 }
  
+classes = [AutoKodaPreferences, autoKodaButton, autoKoda]
+
 def register():
     print('wagwan world')
-    bpy.utils.register_class(autoKodaButton)
-    bpy.utils.register_class(autoKoda)
+    print(__name__)
+    for cls in classes:
+        bpy.utils.register_class(cls)
 
 def unregister():
     print('killin on myself fr')
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
