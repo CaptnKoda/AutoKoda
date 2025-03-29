@@ -5,7 +5,7 @@ schema_version = "1.0.0"
 id = "autokoda"
 version = "1.0.0"
 name = "Autokoda"
-tagline = "This is another extension"
+tagline = "DOES WELL COOL KODA STUFF"
 maintainer = "Koda"
 # Supported types: "add-on", "theme"
 type = "add-on"
@@ -19,7 +19,7 @@ tags = ["Animation", "Sequencer"]
 
 blender_version_min = "4.2.0"
 # # Optional: Blender version that the extension does not support, earlier versions are supported.
-# # This can be omitted and defined later on the extensions platform if an issue is found.
+# # This can be omitted and defined later on t/home/koda/snap/steam/common/.local/share/Steam/steamapps/common/Blender/he extensions platform if an issue is found.
 # blender_version_max = "5.1.0"
 
 # License conforming to https://spdx.org/licenses/ (use "SPDX: prefix)
