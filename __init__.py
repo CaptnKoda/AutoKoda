@@ -86,81 +86,84 @@ class autoKoda(bpy.types.Operator):
     bl_label = "Auto Koda"
     def execute(self, context):
         kodaNodeNames = {
-            "EYE"      : "CaptnKoda SWTOR - Eye Shader",
-            "GARMENT"  : "CaptnKoda SWTOR - Garment Shader",
-            "HAIRC"    : "CaptnKoda SWTOR - HairC Shader",
-            "SKINB"    : "CaptnKoda SWTOR - SkinB Shader",
-            "UBER"     : "CaptnKoda SWTOR - Uber Shader",
+            "EYE": "CaptnKoda SWTOR - Eye Shader",
+            "GARMENT": "CaptnKoda SWTOR - Garment Shader",
+            "HAIRC": "CaptnKoda SWTOR - HairC Shader",
+            "SKINB": "CaptnKoda SWTOR - SkinB Shader",
+            "UBER": "CaptnKoda SWTOR - Uber Shader",
         }
 
         heroGravitasNodeNames = {
-            "EYE"      : "SWTOR - Eye Shader",
-            "GARMENT"  : "SWTOR - Garment Shader",
-            "HAIRC"    : "SWTOR - HairC Shader",
-            "SKINB"    : "SWTOR - SkinB Shader",
-            "UBER"     : "SWTOR - Uber Shader",
+            "EYE": "SWTOR - Eye Shader",
+            "GARMENT": "SWTOR - Garment Shader",
+            "HAIRC": "SWTOR - HairC Shader",
+            "SKINB": "SWTOR - SkinB Shader",
+            "UBER": "SWTOR - Uber Shader",
         }
 
         shadersBlend = context.scene.my_tool.path
-
         if not shadersBlend:
             self.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
             return {'CANCELLED'}
 
-        selectedObj = bpy.context.active_object #Get selected object      
+        selectedObj = bpy.context.active_object
+        if not selectedObj:
+            self.report({'ERROR'}, "No active object selected!")
+            return {'CANCELLED'}
+
         print(f'The selected object is {selectedObj.name}')
 
         detectedShader = None
         detectedNodeGroupName = None
 
         for node in heroGravitasNodeNames.values():
-            print('Trying to find ' + node)
-            try:
-                detectedNodeGroup = getNodeGroup(selectedObj.data.materials, node)
-                if detectedNodeGroup:
-                    detectedNodeGroupName = detectedNodeGroup.name
-                    print(f'Found {detectedNodeGroupName}')
-                    detectedShader = find_key_by_value(heroGravitasNodeNames, detectedNodeGroupName)
-                    print('Found shader ' + detectedShader)
-                    if detectedShader:
-                        break  # Stop looping once a valid shader is found
+            print(f'Trying to find {node}')
+            detectedNodeGroup = getNodeGroup(selectedObj.data.materials, node)
+            if detectedNodeGroup:
+                detectedNodeGroupName = detectedNodeGroup.name
+                print(f'Found {detectedNodeGroupName}')
+                detectedShader = find_key_by_value(heroGravitasNodeNames, detectedNodeGroupName)
+                break  # Stop looping once a valid shader is found
 
-            except Exception as e:
-                print(f"Did not find {node}: {e}")
-                continue
-
-        if not detectedShader or detectedShader not in kodaNodeNames:
-            self.report({'ERROR'}, "No matching shader found.")
+        if not detectedShader or not detectedNodeGroupName:
+            self.report({'ERROR'}, "No matching shader found in the object's materials.")
             return {'CANCELLED'}
 
-        with bpy.data.libraries.load(shadersBlend) as (data_from, data_to):
-            data_to.materials = data_from.materials
-
         kodaShaderName = kodaNodeNames.get(detectedShader)
-        
         if not kodaShaderName:
             self.report({'ERROR'}, f"No Koda shader found for detected shader '{detectedShader}'.")
             return {'CANCELLED'}
 
-        # **Check if the Koda shader already exists in Blender**
+        # Check if already linked
         kodaNodeGroup = bpy.data.node_groups.get(kodaShaderName)
 
-        if not kodaNodeGroup:
-            # If it does not exist, import it
-            print(f"Koda shader '{kodaShaderName}' not found. Importing from blend file...")
+        if kodaNodeGroup and kodaNodeGroup.library:
+            print(f"Koda shader '{kodaShaderName}' is already linked. Skipping re-linking.")
+        else:
+            print(f"Koda shader '{kodaShaderName}' not found or not linked. Attempting to link...")
 
-        with bpy.data.libraries.load(shadersBlend) as (data_from, data_to):
-            data_to.node_groups = [ng for ng in data_from.node_groups if ng == kodaShaderName]
+            # **Link (not append) the node group**
+            with bpy.data.libraries.load(shadersBlend, link=True) as (data_from, data_to):
+                if kodaShaderName in data_from.node_groups:
+                    data_to.node_groups = [kodaShaderName]  # Link instead of copying
+                else:
+                    self.report({'ERROR'}, f"Koda shader '{kodaShaderName}' not found in Shaders.blend!")
+                    return {'CANCELLED'}
 
-        # Check again after import
-        kodaNodeGroup = bpy.data.node_groups.get(kodaShaderName)
-        if not kodaNodeGroup:
-            self.report({'ERROR'}, f"Koda shader '{kodaShaderName}' not found in loaded blend file.")
-            return {'CANCELLED'}
+            # **Retrieve the linked node group**
+            kodaNodeGroup = bpy.data.node_groups.get(kodaShaderName)
 
+            if not kodaNodeGroup or not kodaNodeGroup.library:
+                self.report({'ERROR'}, f"Node group '{kodaShaderName}' was not linked correctly!")
+                return {'CANCELLED'}
+
+        print(f"Successfully linked node group: {kodaNodeGroup.name}, from {kodaNodeGroup.library.filepath}")
+
+        # **Replace the existing node group with the linked one**
         replace_existing_node_group(selectedObj, detectedNodeGroupName, kodaNodeGroup.name)
 
         return {'FINISHED'}
+
 
 class autoKodaButton(bpy.types.Panel):
     bl_idname = "autoKoda"
