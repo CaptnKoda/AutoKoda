@@ -13,6 +13,7 @@ def getNodeGroup(materials, group_name):
         if mat.use_nodes:
             for node in mat.node_tree.nodes:
                 if node.type == 'GROUP' and node.node_tree.name == group_name:
+                    print('Analysing node group ' + node.node_tree.name)
                     return node.node_tree
 
     return None
@@ -21,6 +22,7 @@ def find_key_by_value(dict, target_value):
     for key, value in dict.items():
         if value == target_value:
             return key  # Returns the first matching key
+    print('Did not find key for value ' + target_value)
     return None  # If not found
 
 def replace_existing_node_group(obj, old_group_name, new_group_name): #Replace all instances of an existing node group with another in the object's materials.
@@ -82,7 +84,6 @@ def replace_existing_node_group(obj, old_group_name, new_group_name): #Replace a
 class autoKoda(bpy.types.Operator):
     bl_idname = "example.func_4" #load-bearing idname DO NOT RENAME
     bl_label = "Auto Koda"
-
     def execute(self, context):
         kodaNodeNames = {
             "EYE"      : "CaptnKoda SWTOR - Eye Shader",
@@ -106,23 +107,57 @@ class autoKoda(bpy.types.Operator):
             self.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
             return {'CANCELLED'}
 
-        selectedObj = bpy.context.active_object #Get selected object
+        selectedObj = bpy.context.active_object #Get selected object      
+        print(f'The selected object is {selectedObj.name}')
+
+        detectedShader = None
+        detectedNodeGroupName = None
 
         for node in heroGravitasNodeNames.values():
+            print('Trying to find ' + node)
             try:
                 detectedNodeGroup = getNodeGroup(selectedObj.data.materials, node)
                 if detectedNodeGroup:
                     detectedNodeGroupName = detectedNodeGroup.name
+                    print(f'Found {detectedNodeGroupName}')
                     detectedShader = find_key_by_value(heroGravitasNodeNames, detectedNodeGroupName)
+                    print('Found shader ' + detectedShader)
                     if detectedShader:
                         break  # Stop looping once a valid shader is found
-            except:
+
+            except Exception as e:
+                print(f"Did not find {node}: {e}")
                 continue
+
+        if not detectedShader or detectedShader not in kodaNodeNames:
+            self.report({'ERROR'}, "No matching shader found.")
+            return {'CANCELLED'}
 
         with bpy.data.libraries.load(shadersBlend) as (data_from, data_to):
             data_to.materials = data_from.materials
 
-        kodaNodeGroup = getNodeGroup(data_to.materials, kodaNodeNames[detectedShader])
+        kodaShaderName = kodaNodeNames.get(detectedShader)
+        
+        if not kodaShaderName:
+            self.report({'ERROR'}, f"No Koda shader found for detected shader '{detectedShader}'.")
+            return {'CANCELLED'}
+
+        # **Check if the Koda shader already exists in Blender**
+        kodaNodeGroup = bpy.data.node_groups.get(kodaShaderName)
+
+        if not kodaNodeGroup:
+            # If it does not exist, import it
+            print(f"Koda shader '{kodaShaderName}' not found. Importing from blend file...")
+
+        with bpy.data.libraries.load(shadersBlend) as (data_from, data_to):
+            data_to.node_groups = [ng for ng in data_from.node_groups if ng == kodaShaderName]
+
+        # Check again after import
+        kodaNodeGroup = bpy.data.node_groups.get(kodaShaderName)
+        if not kodaNodeGroup:
+            self.report({'ERROR'}, f"Koda shader '{kodaShaderName}' not found in loaded blend file.")
+            return {'CANCELLED'}
+
         replace_existing_node_group(selectedObj, detectedNodeGroupName, kodaNodeGroup.name)
 
         return {'FINISHED'}
@@ -144,7 +179,6 @@ class autoKodaButton(bpy.types.Panel):
         layout.operator(autoKoda.bl_idname)
         col = layout.column(align=True)
         col.prop(scn.my_tool, "path", text="Shaders.blend")
-        print (scn.my_tool.path)
 
 class AutoKodaPreferences(bpy.types.AddonPreferences):
     bl_idname = __name__.split('.')[-1]  # Extract the actual module name
