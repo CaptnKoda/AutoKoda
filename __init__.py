@@ -1,8 +1,5 @@
 import bpy
 from pathlib import Path
-import os
-#from .utils.addon_checks import requirements_checks
-#from bpy.types import AddonPreferences
 from bpy.props import (StringProperty,
                        PointerProperty,
                        )
@@ -26,9 +23,7 @@ def find_key_by_value(dict, target_value):
             return key  # Returns the first matching key
     return None  # If not found
 
-def replace_existing_node_group(obj, old_group_name, new_group_name):
-    """Replace all instances of an existing node group with another in the object's materials."""
-    
+def replace_existing_node_group(obj, old_group_name, new_group_name): #Replace all instances of an existing node group with another in the object's materials.
     if not obj or not obj.active_material:
         print("No active material found on the selected object.")
         return
@@ -45,9 +40,6 @@ def replace_existing_node_group(obj, old_group_name, new_group_name):
             
             for node in nodes:
                 if node.type == 'GROUP' and node.node_tree and node.node_tree.name == old_group_name:
-                    print('gettin dat shit ' + old_group_name + 'outta here')
-                    print('dat new shit ' + new_group_name + ' is totally in rn')
-
                     # Store node properties
                     node_location = node.location
                     node_label = node.label
@@ -89,7 +81,7 @@ def replace_existing_node_group(obj, old_group_name, new_group_name):
 
 class autoKoda(bpy.types.Operator):
     bl_idname = "example.func_4" #load-bearing idname DO NOT RENAME
-    bl_label = "button that is well good"
+    bl_label = "Auto Koda"
 
     def execute(self, context):
         kodaNodeNames = {
@@ -108,9 +100,7 @@ class autoKoda(bpy.types.Operator):
             "UBER"     : "SWTOR - Uber Shader",
         }
 
-        # prefs = bpy.context.preferences.addons[__name__].preferences
-        #shadersBlend = prefs.shaders_blend_path
-
+        shadersBlend = context.scene.my_tool.path
 
         if not shadersBlend:
             self.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
@@ -129,17 +119,10 @@ class autoKoda(bpy.types.Operator):
             except:
                 continue
 
-        print('node group is ' + detectedNodeGroupName + ' fr')
-
-        print('detected shader is ' + detectedShader + ' fr')
-
         with bpy.data.libraries.load(shadersBlend) as (data_from, data_to):
             data_to.materials = data_from.materials
 
         kodaNodeGroup = getNodeGroup(data_to.materials, kodaNodeNames[detectedShader])
-
-        print('omg its ' + kodaNodeGroup.name)
-
         replace_existing_node_group(selectedObj, detectedNodeGroupName, kodaNodeGroup.name)
 
         return {'FINISHED'}
@@ -148,18 +131,19 @@ class autoKodaButton(bpy.types.Panel):
     bl_idname = "autoKoda"
 
     bl_category = "Auto Koda"
-    bl_label = "label init"
+    bl_label = "Auto Koda"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     #bl_context = 'object'
 
     def draw(self, context):
-        self.layout.label(text = "panel what i made")
-        self.layout.operator(autoKoda.bl_idname)
         layout = self.layout
         scn = context.scene
+
+        layout.label(text = "Select your Shaders.blend file below")
+        layout.operator(autoKoda.bl_idname)
         col = layout.column(align=True)
-        col.prop(scn.my_tool, "path", text="Select Your Shaders.blend File")
+        col.prop(scn.my_tool, "path", text="Shaders.blend")
         print (scn.my_tool.path)
 
 class AutoKodaPreferences(bpy.types.AddonPreferences):
@@ -174,7 +158,7 @@ class AutoKodaPreferences(bpy.types.AddonPreferences):
 
     def draw(self, context):
         layout = self.layout
-        layout.label(text="Set the path to your shaders .blend file:")
+        layout.label(text="Shaders.blend")
         layout.prop(self, "shaders_blend_path")  # File path selector
 
 class MyProperties(PropertyGroup):
