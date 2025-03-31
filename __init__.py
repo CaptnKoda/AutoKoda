@@ -1,7 +1,15 @@
 import bpy
 from pathlib import Path
 import os
-from .utils.addon_checks import requirements_checks
+#from .utils.addon_checks import requirements_checks
+#from bpy.types import AddonPreferences
+from bpy.props import (StringProperty,
+                       PointerProperty,
+                       )
+                       
+from bpy.types import (Panel,
+                       PropertyGroup,
+                       )
 
 def getNodeGroup(materials, group_name):
     for mat in materials:
@@ -100,8 +108,10 @@ class autoKoda(bpy.types.Operator):
             "UBER"     : "SWTOR - Uber Shader",
         }
 
-        prefs = bpy.context.preferences.addons[__name__].preferences
-        shadersBlend = prefs.shaders_blend_path
+        # prefs = bpy.context.preferences.addons[__name__].preferences
+        #shadersBlend = prefs.shaders_blend_path
+
+
         if not shadersBlend:
             self.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
             return {'CANCELLED'}
@@ -146,22 +156,35 @@ class autoKodaButton(bpy.types.Panel):
     def draw(self, context):
         self.layout.label(text = "panel what i made")
         self.layout.operator(autoKoda.bl_idname)
+        layout = self.layout
+        scn = context.scene
+        col = layout.column(align=True)
+        col.prop(scn.my_tool, "path", text="Select Your Shaders.blend File")
+        print (scn.my_tool.path)
 
 class AutoKodaPreferences(bpy.types.AddonPreferences):
     bl_idname = __name__.split('.')[-1]  # Extract the actual module name
 
-    shaders_blend_path: bpy.props.StringProperty(
+    shaders_blend_path: StringProperty(
         name="Shaders Blend File",
+        default = "",
         description="Path to the .blend file containing the Koda shaders",
         subtype='FILE_PATH'
-    )
+    ) # type: ignore
 
     def draw(self, context):
         layout = self.layout
         layout.label(text="Set the path to your shaders .blend file:")
         layout.prop(self, "shaders_blend_path")  # File path selector
 
+class MyProperties(PropertyGroup):
 
+    path: StringProperty(
+        name="we",
+        description="Path to Directory",
+        default="",
+        maxlen=1024,
+        subtype='FILE_PATH') # type: ignore
 
 bl_info = {
     "name": "Auto Koda",
@@ -172,13 +195,15 @@ bl_info = {
     "category": "Material",
 }
  
-classes = [AutoKodaPreferences, autoKodaButton, autoKoda]
+classes = [AutoKodaPreferences, autoKodaButton, autoKoda, MyProperties]
 
 def register():
     print('wagwan world')
     print(__name__)
     for cls in classes:
         bpy.utils.register_class(cls)
+
+    bpy.types.Scene.my_tool = PointerProperty(type=MyProperties)
 
 def unregister():
     print('killin on myself fr')
