@@ -25,7 +25,7 @@ def find_key_by_value(dict, target_value):
     print('Did not find key for value ' + target_value)
     return None  # If not found
 
-def replace_existing_node_group(obj, old_group_name, new_group_name): #Replace all instances of an existing node group with another in the object's materials.
+def replace_existing_node_group(obj, old_group_name, new_group_name):
     if not obj or not obj.active_material:
         print("No active material found on the selected object.")
         return
@@ -46,12 +46,16 @@ def replace_existing_node_group(obj, old_group_name, new_group_name): #Replace a
                     node_location = node.location
                     node_label = node.label
 
-                    # Store links safely
+                    # Store links and socket values
                     input_links = {}
                     output_links = {}
+                    input_values = {}
 
                     for input_socket in node.inputs:
-                        input_links[input_socket.name] = [link.from_socket for link in input_socket.links]
+                        if input_socket.is_linked:
+                            input_links[input_socket.name] = [link.from_socket for link in input_socket.links]
+                        else:
+                            input_values[input_socket.name] = input_socket.default_value
 
                     for output_socket in node.outputs:
                         output_links[output_socket.name] = [link.to_socket for link in output_socket.links]
@@ -71,6 +75,11 @@ def replace_existing_node_group(obj, old_group_name, new_group_name): #Replace a
                                     links.new(from_socket, input_socket)
                                 except Exception as e:
                                     print(f"Failed to reconnect input {input_socket.name}: {e}")
+                        elif input_socket.name in input_values:
+                            try:
+                                input_socket.default_value = input_values[input_socket.name]
+                            except Exception as e:
+                                print(f"Failed to restore value for {input_socket.name}: {e}")
 
                     # Restore output links if matching sockets exist
                     for output_socket in node.outputs:
