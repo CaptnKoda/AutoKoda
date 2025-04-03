@@ -1,12 +1,6 @@
 import bpy
-from pathlib import Path
-from bpy.props import (StringProperty,
-                       PointerProperty,
-                       )
-                       
-from bpy.types import (Panel,
-                       PropertyGroup,
-                       )
+from bpy.props import StringProperty                   
+from bpy.types import AddonPreferences
 
 def getNodeGroup(materials, group_name):
     for mat in materials:
@@ -90,7 +84,8 @@ def replace_existing_node_group(obj, old_group_name, new_group_name):
                                 except Exception as e:
                                     print(f"Failed to reconnect output {output_socket.name}: {e}")
 
-class autoKoda(bpy.types.Operator):
+
+class Auto_Koda(bpy.types.Operator):
     bl_idname = "example.func_4" #load-bearing idname DO NOT RENAME
     bl_label = "Auto Koda"
     def execute(self, context):
@@ -110,7 +105,8 @@ class autoKoda(bpy.types.Operator):
             "UBER": "SWTOR - Uber Shader",
         }
 
-        shadersBlend = context.scene.my_tool.path
+        prefs = bpy.context.preferences.addons[__name__].preferences
+        shadersBlend = prefs.shadersPath
         if not shadersBlend:
             self.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
             return {'CANCELLED'}
@@ -174,8 +170,8 @@ class autoKoda(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class autoKodaButton(bpy.types.Panel):
-    bl_idname = "autoKoda"
+class Auto_Koda_Button(bpy.types.Panel):
+    bl_idname = "VIEW3D_PT_auto_koda"
 
     bl_category = "Auto Koda"
     bl_label = "Auto Koda"
@@ -185,55 +181,35 @@ class autoKodaButton(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        scn = context.scene
+        shadersBlend = bpy.context.preferences.addons[__name__].preferences.shadersPath
+        if 'Shaders.blend' in shadersBlend:
+            statusText = 'Shaders.blend Set Correctly!'
+        else:
+            statusText = 'Shaders.blend Not Set Correctly!'   
 
-        layout.label(text = "Select your Shaders.blend file below")
-        layout.operator(autoKoda.bl_idname)
-        col = layout.column(align=True)
-        col.prop(scn.my_tool, "path", text="Shaders.blend")
+        layout.label(text = statusText)
+        layout.operator(Auto_Koda.bl_idname)
 
-class AutoKodaPreferences(bpy.types.AddonPreferences):
-    bl_idname = __name__.split('.')[-1]  # Extract the actual module name
 
-    shaders_blend_path: StringProperty(
-        name="Shaders Blend File",
-        default = "",
-        description="Path to the .blend file containing the Koda shaders",
-        subtype='FILE_PATH'
-    ) # type: ignore
+class Auto_Koda_Preferences(AddonPreferences):
+    bl_idname = __name__
+
+    shadersPath: StringProperty(
+        name="",
+        subtype='FILE_PATH',) # type: ignore
 
     def draw(self, context):
         layout = self.layout
-        layout.label(text="Shaders.blend")
-        layout.prop(self, "shaders_blend_path")  # File path selector
+        layout.label(text="Select your Shaders.blend file below")
+        layout.prop(self, "shadersPath")
 
-class MyProperties(PropertyGroup):
-
-    path: StringProperty(
-        name="we",
-        description="Path to Directory",
-        default="",
-        maxlen=1024,
-        subtype='FILE_PATH') # type: ignore
-
-bl_info = {
-    "name": "Auto Koda",
-    "author": "Koda",
-    "version": (1, 0),
-    "blender": (4, 2, 8),
-    "description": "Converts ZeroGravitas Shaders to Koda Shaders",
-    "category": "Material",
-}
- 
-classes = [AutoKodaPreferences, autoKodaButton, autoKoda, MyProperties]
+classes = [Auto_Koda, Auto_Koda_Button, Auto_Koda_Preferences]
 
 def register():
     print('wagwan world')
     print(__name__)
     for cls in classes:
         bpy.utils.register_class(cls)
-
-    bpy.types.Scene.my_tool = PointerProperty(type=MyProperties)
 
 def unregister():
     print('killin on myself fr')
