@@ -2,6 +2,22 @@ import bpy
 from bpy.props import StringProperty                   
 from bpy.types import AddonPreferences
 
+KODA_NODE_NAMES = {
+    "EYE": "CaptnKoda SWTOR - Eye Shader",
+    "GARMENT": "CaptnKoda SWTOR - Garment Shader",
+    "HAIRC": "CaptnKoda SWTOR - HairC Shader",
+    "SKINB": "CaptnKoda SWTOR - SkinB Shader",
+    "UBER": "CaptnKoda SWTOR - Uber Shader",
+}
+
+HERO_GRAVITAS_NODE_NAMES = {
+    "EYE": "SWTOR - Eye Shader",
+    "GARMENT": "SWTOR - Garment Shader",
+    "HAIRC": "SWTOR - HairC Shader",
+    "SKINB": "SWTOR - SkinB Shader",
+    "UBER": "SWTOR - Uber Shader",
+}
+
 def getNodeGroup(materials, group_name):
     for mat in materials:
         if mat.use_nodes:
@@ -84,29 +100,60 @@ def replace_existing_node_group(obj, old_group_name, new_group_name):
                                 except Exception as e:
                                     print(f"Failed to reconnect output {output_socket.name}: {e}")
 
+def process_object(obj):
+            detectedShader = None
+            detectedNodeGroupName = None
+            shadersBlend = get_shaders_blend_path()
 
-class Auto_Koda(bpy.types.Operator):
-    bl_idname = "example.func_4" #load-bearing idname DO NOT RENAME
+            for node in HERO_GRAVITAS_NODE_NAMES.values():
+                detectedNodeGroup = getNodeGroup(obj.data.materials, node)
+                if detectedNodeGroup:
+                    detectedNodeGroupName = detectedNodeGroup.name
+                    detectedShader = find_key_by_value(HERO_GRAVITAS_NODE_NAMES, detectedNodeGroupName)
+                    break
+
+            if not detectedShader or not detectedNodeGroupName:
+                print(f"No matching shader for {obj.name}")
+                return
+
+            kodaShaderName = KODA_NODE_NAMES.get(detectedShader)
+            if not kodaShaderName:
+                print(f"No Koda shader for {obj.name}")
+                return
+
+            kodaNodeGroup = bpy.data.node_groups.get(kodaShaderName)
+
+            if not kodaNodeGroup or not kodaNodeGroup.library:
+                with bpy.data.libraries.load(shadersBlend, link=True) as (data_from, data_to):
+                    if kodaShaderName in data_from.node_groups:
+                        data_to.node_groups = [kodaShaderName]
+                    else:
+                        print(f"Koda shader '{kodaShaderName}' not found for {obj.name}")
+                        return
+
+            kodaNodeGroup = bpy.data.node_groups.get(kodaShaderName)
+            if not kodaNodeGroup:
+                print(f"Failed to link {kodaShaderName} for {obj.name}")
+                return
+
+            print(f"[{obj.name}] Replacing {detectedNodeGroupName} with {kodaNodeGroup.name}")
+            replace_existing_node_group(obj, detectedNodeGroupName, kodaNodeGroup.name)
+
+def get_shaders_blend_path():
+    try:
+        return bpy.context.preferences.addons[__name__].preferences.shadersPath
+    except Exception as e:
+        print(f"Could not retrieve shaders path: {e}")
+        return ""
+
+
+class Auto_Koda_Selected(bpy.types.Operator):
+    bl_idname = "autokoda.convert_selected" #load-bearing idname DO NOT RENAME
     bl_label = "Auto Koda"
+    bl_description = "Convert the shader of the selected object to a Koda shader"
+
     def execute(self, context):
-        kodaNodeNames = {
-            "EYE": "CaptnKoda SWTOR - Eye Shader",
-            "GARMENT": "CaptnKoda SWTOR - Garment Shader",
-            "HAIRC": "CaptnKoda SWTOR - HairC Shader",
-            "SKINB": "CaptnKoda SWTOR - SkinB Shader",
-            "UBER": "CaptnKoda SWTOR - Uber Shader",
-        }
-
-        heroGravitasNodeNames = {
-            "EYE": "SWTOR - Eye Shader",
-            "GARMENT": "SWTOR - Garment Shader",
-            "HAIRC": "SWTOR - HairC Shader",
-            "SKINB": "SWTOR - SkinB Shader",
-            "UBER": "SWTOR - Uber Shader",
-        }
-
-        prefs = bpy.context.preferences.addons[__name__].preferences
-        shadersBlend = prefs.shadersPath
+        shadersBlend = get_shaders_blend_path()
         if not shadersBlend:
             self.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
             return {'CANCELLED'}
@@ -118,57 +165,26 @@ class Auto_Koda(bpy.types.Operator):
 
         print(f'The selected object is {selectedObj.name}')
 
-        detectedShader = None
-        detectedNodeGroupName = None
-
-        for node in heroGravitasNodeNames.values():
-            print(f'Trying to find {node}')
-            detectedNodeGroup = getNodeGroup(selectedObj.data.materials, node)
-            if detectedNodeGroup:
-                detectedNodeGroupName = detectedNodeGroup.name
-                print(f'Found {detectedNodeGroupName}')
-                detectedShader = find_key_by_value(heroGravitasNodeNames, detectedNodeGroupName)
-                break  # Stop looping once a valid shader is found
-
-        if not detectedShader or not detectedNodeGroupName:
-            self.report({'ERROR'}, "No matching shader found in the object's materials.")
-            return {'CANCELLED'}
-
-        kodaShaderName = kodaNodeNames.get(detectedShader)
-        if not kodaShaderName:
-            self.report({'ERROR'}, f"No Koda shader found for detected shader '{detectedShader}'.")
-            return {'CANCELLED'}
-
-        # Check if already linked
-        kodaNodeGroup = bpy.data.node_groups.get(kodaShaderName)
-
-        if kodaNodeGroup and kodaNodeGroup.library:
-            print(f"Koda shader '{kodaShaderName}' is already linked. Skipping re-linking.")
-        else:
-            print(f"Koda shader '{kodaShaderName}' not found or not linked. Attempting to link...")
-
-            # **Link (not append) the node group**
-            with bpy.data.libraries.load(shadersBlend, link=True) as (data_from, data_to):
-                if kodaShaderName in data_from.node_groups:
-                    data_to.node_groups = [kodaShaderName]  # Link instead of copying
-                else:
-                    self.report({'ERROR'}, f"Koda shader '{kodaShaderName}' not found in Shaders.blend!")
-                    return {'CANCELLED'}
-
-            # **Retrieve the linked node group**
-            kodaNodeGroup = bpy.data.node_groups.get(kodaShaderName)
-
-            if not kodaNodeGroup or not kodaNodeGroup.library:
-                self.report({'ERROR'}, f"Node group '{kodaShaderName}' was not linked correctly!")
-                return {'CANCELLED'}
-
-        print(f"Successfully linked node group: {kodaNodeGroup.name}, from {kodaNodeGroup.library.filepath}")
-
-        # **Replace the existing node group with the linked one**
-        replace_existing_node_group(selectedObj, detectedNodeGroupName, kodaNodeGroup.name)
+        process_object(selectedObj)
 
         return {'FINISHED'}
+    
+class Auto_Koda_All(bpy.types.Operator):
+    bl_idname = "autokoda.convert_all" #load-bearing idname DO NOT RENAME
+    bl_label = "Auto Koda (All Objects)"
+    bl_description = "Convert the shaders of all objects in the scene to Koda shaders"
 
+    def execute(self, context):
+        shadersBlend = get_shaders_blend_path()
+        if not shadersBlend:
+            self.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
+            return {'CANCELLED'}
+
+        for obj in bpy.context.scene.objects:
+            if obj.type == 'MESH' and obj.data.materials:
+                process_object(obj)
+
+        return {'FINISHED'}
 
 class Auto_Koda_Button(bpy.types.Panel):
     bl_idname = "VIEW3D_PT_auto_koda"
@@ -181,15 +197,15 @@ class Auto_Koda_Button(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        shadersBlend = bpy.context.preferences.addons[__name__].preferences.shadersPath
-        if 'Shaders.blend' in shadersBlend:
+        shadersBlendLoc = bpy.context.preferences.addons[__name__].preferences.shadersPath
+        if 'Shaders.blend' in shadersBlendLoc:
             statusText = 'Shaders.blend Set Correctly!'
         else:
             statusText = 'Shaders.blend Not Set Correctly!'   
 
         layout.label(text = statusText)
-        layout.operator(Auto_Koda.bl_idname)
-
+        layout.operator(Auto_Koda_Selected.bl_idname, text="Auto Koda (Selected)", icon='RESTRICT_SELECT_OFF')
+        layout.operator(Auto_Koda_All.bl_idname, text="Auto Koda (All)", icon='SCENE_DATA')
 
 class Auto_Koda_Preferences(AddonPreferences):
     bl_idname = __name__
@@ -203,7 +219,7 @@ class Auto_Koda_Preferences(AddonPreferences):
         layout.label(text="Select your Shaders.blend file below")
         layout.prop(self, "shadersPath")
 
-classes = [Auto_Koda, Auto_Koda_Button, Auto_Koda_Preferences]
+classes = [Auto_Koda_Selected, Auto_Koda_All, Auto_Koda_Button, Auto_Koda_Preferences]
 
 def register():
     print('wagwan world')
