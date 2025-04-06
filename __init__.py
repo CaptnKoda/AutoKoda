@@ -37,6 +37,25 @@ def find_key_by_value(dict, target_value):
     print('Did not find key for value ' + target_value)
     return None  # If not found
 
+def load_and_link_texture(shaders_blend_path, node_name, image_name):
+    """Helper function to load the image from shaders.blend and link it to the node."""
+    with bpy.data.libraries.load(shaders_blend_path, link=True) as (data_from, data_to):
+        # Check if the image exists in the Shaders.blend file
+        if image_name in data_from.images:
+            # Link the image to the current scene
+            if image_name not in bpy.data.images:
+                data_to.images = [image_name]
+
+            # Assign the image to the corresponding texture node
+            image = bpy.data.images.get(image_name)
+            if image:
+                node_name.image = image
+                print(f"Image {image_name} successfully linked to node {node_name.name}")
+            else:
+                print(f"Failed to load image {image_name}")
+        else:
+            print(f"Image {image_name} not found in Shaders.blend.")
+
 def replace_existing_node_group(obj, old_group_name, new_group_name):
     if not obj or not obj.active_material:
         print("No active material found on the selected object.")
@@ -101,6 +120,36 @@ def replace_existing_node_group(obj, old_group_name, new_group_name):
                                     links.new(output_socket, to_socket)
                                 except Exception as e:
                                     print(f"Failed to reconnect output {output_socket.name}: {e}")
+
+                    '''# Inject wrinkle map images for SkinB Shader
+                    if old_group_name == "SWTOR - SkinB Shader" and new_group_name == "CaptnKoda SWTOR - SkinB Shader":
+                        # Create image texture nodes for wrinkle map and mask
+                        wrinkle_map_node = nodes.new(type='ShaderNodeTexImage')
+                        wrinkle_map_node.name = wrinkle_map_node.label = "animatedWrinkleMap"
+                        wrinkle_map_node.location = (node.location[0] - 800, node.location[1] - 200)
+                        wrinkle_map_node.hide = True
+
+                        wrinkle_mask_node = nodes.new(type='ShaderNodeTexImage')
+                        wrinkle_mask_node.name = wrinkle_mask_node.label = "animatedWrinkleMask"
+                        wrinkle_mask_node.location = (node.location[0] - 800, node.location[1])
+                        wrinkle_mask_node.hide = True
+
+                        # Load the wrinkle map image from the Shaders.blend
+                        shaders_blend_path = get_shaders_blend_path()
+                        if shaders_blend_path:
+                            load_and_link_texture(shaders_blend_path, wrinkle_map_node, 'wrinkles_compressed_bmn_c01_wrinkles_stretched_bmn_c01_w.dd')
+                            load_and_link_texture(shaders_blend_path, wrinkle_mask_node, 'wrinkles_colormask01_wrinkles_colormask02_wm.dds')
+
+                        # Link to the new node group if inputs exist
+                        if "animatedWrinkleMap Color" in node.inputs:
+                            links.new(wrinkle_map_node.outputs['Color'], node.inputs["animatedWrinkleMap Color"])
+                        if "animatedWrinkleMap Alpha" in node.inputs:
+                            links.new(wrinkle_map_node.outputs['Alpha'], node.inputs["animatedWrinkleMap Alpha"])
+
+                        if "animatedWrinkleMask Color" in node.inputs:
+                            links.new(wrinkle_mask_node.outputs['Color'], node.inputs["animatedWrinkleMask Color"])
+                        if "animatedWrinkleMask Alpha" in node.inputs:
+                            links.new(wrinkle_mask_node.outputs['Alpha'], node.inputs["animatedWrinkleMask Alpha"])'''                        
 
 def process_object(obj):
             detectedShader = None
@@ -199,22 +248,24 @@ class Auto_Koda_Button(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        shadersBlendLoc = bpy.context.preferences.addons[__name__].preferences.shadersPath
+        prefs = bpy.context.preferences.addons[__name__].preferences
+        shadersBlendLoc = prefs.shadersPath
+
+        # STATUS BLOCK
+        box = layout.box()
+        row = box.row()
 
         if 'Shaders.blend' not in shadersBlendLoc:
-            row = layout.row()
             row.alert = True
-            row.label(text="Missing path to Shaders.blend", icon='ERROR')
-
+            row.label(text="Shaders.blend path not set!", icon='ERROR')
+            box.operator("preferences.addon_show", text="Set Shaders.blend", icon='FILE_FOLDER').module = __name__
         else:
-            layout.label(text="Shaders.blend path set correctly", icon='HEART')
+            row.label(text="Shaders.blend path OK", icon='CHECKMARK')
 
-        # Always show the button now
-        layout.operator("preferences.addon_show", text="Open Preferences").module = __name__
-        layout.separator()
-
+        # ACTION BUTTONS
         layout.operator(Auto_Koda_Selected.bl_idname, text="Auto Koda (Selected)", icon='RESTRICT_SELECT_OFF')
         layout.operator(Auto_Koda_All.bl_idname, text="Auto Koda (All)", icon='SCENE_DATA')
+
 
 
 class Auto_Koda_Preferences(AddonPreferences):
