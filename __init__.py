@@ -2,22 +2,24 @@ import bpy
 from bpy.props import StringProperty                   
 from bpy.types import AddonPreferences
 
+#Global Consts
 KODA_NODE_NAMES = {
-    "EYE": "CaptnKoda SWTOR - Eye Shader",
-    "GARMENT": "CaptnKoda SWTOR - Garment Shader",
-    "HAIRC": "CaptnKoda SWTOR - HairC Shader",
-    "SKINB": "CaptnKoda SWTOR - SkinB Shader",
-    "UBER": "CaptnKoda SWTOR - Uber Shader",
+    "EYE"       : "CaptnKoda SWTOR - Eye Shader",
+    "GARMENT"   : "CaptnKoda SWTOR - Garment Shader",
+    "HAIRC"     : "CaptnKoda SWTOR - HairC Shader",
+    "SKINB"     : "CaptnKoda SWTOR - SkinB Shader",
+    "UBER"      : "CaptnKoda SWTOR - Uber Shader",
 }
 
 HERO_GRAVITAS_NODE_NAMES = {
-    "EYE": "SWTOR - Eye Shader",
-    "GARMENT": "SWTOR - Garment Shader",
-    "HAIRC": "SWTOR - HairC Shader",
-    "SKINB": "SWTOR - SkinB Shader",
-    "UBER": "SWTOR - Uber Shader",
+    "EYE"       : "SWTOR - Eye Shader",
+    "GARMENT"   : "SWTOR - Garment Shader",
+    "HAIRC"     : "SWTOR - HairC Shader",
+    "SKINB"     : "SWTOR - SkinB Shader",
+    "UBER"      : "SWTOR - Uber Shader",
 }
 
+#Functions
 def getNodeGroup(materials, group_name):
     for mat in materials:
         if mat.use_nodes:
@@ -146,7 +148,7 @@ def get_shaders_blend_path():
         print(f"Could not retrieve shaders path: {e}")
         return ""
 
-
+#Classes
 class Auto_Koda_Selected(bpy.types.Operator):
     bl_idname = "autokoda.convert_selected" #load-bearing idname DO NOT RENAME
     bl_label = "Auto Koda"
@@ -198,14 +200,22 @@ class Auto_Koda_Button(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         shadersBlendLoc = bpy.context.preferences.addons[__name__].preferences.shadersPath
-        if 'Shaders.blend' in shadersBlendLoc:
-            statusText = 'Shaders.blend Set Correctly!'
-        else:
-            statusText = 'Shaders.blend Not Set Correctly!'   
 
-        layout.label(text = statusText)
+        if 'Shaders.blend' not in shadersBlendLoc:
+            row = layout.row()
+            row.alert = True
+            row.label(text="Missing path to Shaders.blend", icon='ERROR')
+
+        else:
+            layout.label(text="Shaders.blend path set correctly", icon='HEART')
+
+        # Always show the button now
+        layout.operator("preferences.addon_show", text="Open Preferences").module = __name__
+        layout.separator()
+
         layout.operator(Auto_Koda_Selected.bl_idname, text="Auto Koda (Selected)", icon='RESTRICT_SELECT_OFF')
         layout.operator(Auto_Koda_All.bl_idname, text="Auto Koda (All)", icon='SCENE_DATA')
+
 
 class Auto_Koda_Preferences(AddonPreferences):
     bl_idname = __name__
