@@ -25,19 +25,21 @@ def getNodeGroup(materials, group_name):
         if mat.use_nodes:
             for node in mat.node_tree.nodes:
                 if node.type == 'GROUP' and node.node_tree.name == group_name:
-                    print('Analysing node group ' + node.node_tree.name)
+                    print(f"Analysing node group {node.node_tree.name}.")
                     return node.node_tree
 
     return None
 
-def find_key_by_value(dict, target_value):
+def getValueKey(dict, target_value): #Get a dictionary's key by it's value
     for key, value in dict.items():
         if value == target_value:
             return key  # Returns the first matching key
-    print('Did not find key for value ' + target_value)
+    print(f"Did not find key for value {target_value}.")
     return None  # If not found
 
-def load_and_link_texture(shaders_blend_path, node, image_name):
+def linkImageFromShaders(node, image_name): #Links a given image from Shaders.blend into a given image node object
+    shaders_blend_path = getShadersBlendPath()
+
     with bpy.data.libraries.load(shaders_blend_path, link=True) as (data_from, data_to):
         if image_name in data_from.images:
             print(f"Found image: {image_name}")
@@ -57,14 +59,14 @@ def load_and_link_texture(shaders_blend_path, node, image_name):
     else:
         print(f"Node '{node.name}' does not support image assignment.")
 
-def createNewImageNode(nodes, label, x, y, minimize):
+def createNewImageNode(nodes, label, x, y, minimize): #Creates a new Image Texture node
     newImageNode = nodes.new(type='ShaderNodeTexImage')
     newImageNode.name = newImageNode.label = label
     newImageNode.location = (x, y)
     newImageNode.hide = minimize
     return newImageNode
 
-def replace_existing_node_group(obj, old_group_name, new_group_name):
+def replaceNodeGroup(obj, old_group_name, new_group_name):
     if not obj or not obj.active_material:
         print("No active material found on the selected object.")
         return
@@ -129,12 +131,12 @@ def replace_existing_node_group(obj, old_group_name, new_group_name):
                                 except Exception as e:
                                     print(f"Failed to reconnect output {output_socket.name}: {e}")
 
-                    # Inject wrinkle map images for SkinB Shader
+                    # Manually entering in SkinB additions
                     if old_group_name == "SWTOR - SkinB Shader" and new_group_name == "CaptnKoda SWTOR - SkinB Shader":
-                        # Create image texture nodes for wrinkle map and mask
+                        
+                        #Create missing nodes
                         wrinkle_map_node = createNewImageNode(nodes, 'animatedWrinklesMap', node.location[0] - 800, node.location[1] - 200, True)
                         wrinkle_mask_node = createNewImageNode(nodes, 'animatedWrinkleMask', node.location[0] - 800, node.location[1], True)
-
                         scarMapNode = createNewImageNode(nodes, 'ScarMap', node.location[0] - 800, node.location[1] - 400, False)
 
                         # Manually setting defaults
@@ -142,11 +144,11 @@ def replace_existing_node_group(obj, old_group_name, new_group_name):
                         node.inputs["Maximum Roughness"].default_value = 0.4
 
                         # Load the wrinkle map image from the Shaders.blend
-                        shaders_blend_path = get_shaders_blend_path()
+                        shaders_blend_path = getShadersBlendPath()
                         if shaders_blend_path:
-                            load_and_link_texture(shaders_blend_path, wrinkle_map_node, 'wrinkles_compressed_bmn_c01_wrinkles_stretched_bmn_c01_w.dd')
-                            load_and_link_texture(shaders_blend_path, wrinkle_mask_node, 'wrinkles_colormask01_wrinkles_colormask02_wm.dds')
-                            load_and_link_texture(shaders_blend_path, scarMapNode, 'age_non_non_none_u.dds')
+                            linkImageFromShaders(wrinkle_map_node, 'wrinkles_compressed_bmn_c01_wrinkles_stretched_bmn_c01_w.dd')
+                            linkImageFromShaders(wrinkle_mask_node, 'wrinkles_colormask01_wrinkles_colormask02_wm.dds')
+                            linkImageFromShaders(scarMapNode, 'age_non_non_none_u.dds')
 
                         # Link to the new node group if inputs exist
                         if "animatedWrinkleMap Color" in node.inputs:
@@ -164,16 +166,16 @@ def replace_existing_node_group(obj, old_group_name, new_group_name):
                         if "Scar RotationMap Alpha" in node.inputs:
                             links.new(scarMapNode.outputs['Alpha'], node.inputs["Scar RotationMap Alpha"])                         
 
-def process_object(obj):
+def processObject(obj): #process_object
             detectedShader = None
             detectedNodeGroupName = None
-            shadersBlend = get_shaders_blend_path()
+            shadersBlend = getShadersBlendPath()
 
             for node in HERO_GRAVITAS_NODE_NAMES.values():
                 detectedNodeGroup = getNodeGroup(obj.data.materials, node)
                 if detectedNodeGroup:
                     detectedNodeGroupName = detectedNodeGroup.name
-                    detectedShader = find_key_by_value(HERO_GRAVITAS_NODE_NAMES, detectedNodeGroupName)
+                    detectedShader = getValueKey(HERO_GRAVITAS_NODE_NAMES, detectedNodeGroupName)
                     break
 
             if not detectedShader or not detectedNodeGroupName:
@@ -201,9 +203,9 @@ def process_object(obj):
                 return
 
             print(f"[{obj.name}] Replacing {detectedNodeGroupName} with {kodaNodeGroup.name}")
-            replace_existing_node_group(obj, detectedNodeGroupName, kodaNodeGroup.name)
+            replaceNodeGroup(obj, detectedNodeGroupName, kodaNodeGroup.name)
 
-def get_shaders_blend_path():
+def getShadersBlendPath(): #Retrieve the file path set in the addon's preferences for Shaders.blend
     try:
         return bpy.context.preferences.addons[__name__].preferences.shadersPath
     except Exception as e:
@@ -212,53 +214,47 @@ def get_shaders_blend_path():
 
 #Classes
 class Auto_Koda_Selected(bpy.types.Operator):
-    bl_idname = "autokoda.convert_selected" #load-bearing idname DO NOT RENAME
+    bl_idname = "autokoda.convert_selected"
     bl_label = "Auto Koda"
     bl_description = "Convert the shader of the selected object to a Koda shader"
 
     def execute(self, context):
-        shadersBlend = get_shaders_blend_path()
+        shadersBlend = getShadersBlendPath()
         if not shadersBlend:
             self.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
             return {'CANCELLED'}
-
-        selectedObj = bpy.context.active_object
-        if not selectedObj:
-            self.report({'ERROR'}, "No active object selected!")
-            return {'CANCELLED'}
-
-        print(f'The selected object is {selectedObj.name}')
-
-        process_object(selectedObj)
+        
+        for obj in bpy.context.selected_objects:
+            if obj.type == 'MESH':
+                processObject(obj)
 
         return {'FINISHED'}
     
 class Auto_Koda_All(bpy.types.Operator):
-    bl_idname = "autokoda.convert_all" #load-bearing idname DO NOT RENAME
+    bl_idname = "autokoda.convert_all"
     bl_label = "Auto Koda (All Objects)"
     bl_description = "Convert the shaders of all objects in the scene to Koda shaders"
 
     def execute(self, context):
-        shadersBlend = get_shaders_blend_path()
+        shadersBlend = getShadersBlendPath()
         if not shadersBlend:
             self.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
             return {'CANCELLED'}
 
         for obj in bpy.context.scene.objects:
             if obj.type == 'MESH' and obj.data.materials:
-                process_object(obj)
+                processObject(obj)
 
         return {'FINISHED'}
     
-
 class Crunchs_Secret_Button(bpy.types.Operator):
-    bl_idname = "autokoda.crunch" #load-bearing idname DO NOT RENAME
+    bl_idname = "autokoda.crunch"
     bl_label = "Crunch's Secret Button"
     bl_description = "deploy the goon squad"
 
     def execute(self, context):
         print('its goonin time')
-
+        #The good shit goes here.
         return {'FINISHED'}
 
 class Auto_Koda_Button(bpy.types.Panel):
@@ -291,9 +287,6 @@ class Auto_Koda_Button(bpy.types.Panel):
         layout.operator(Auto_Koda_All.bl_idname, text="Auto Koda (All)", icon='SCENE_DATA')
         layout.operator(Crunchs_Secret_Button.bl_idname, text="Crunch's Secret Button", icon='POSE_HLT')
 
-
-
-
 class Auto_Koda_Preferences(AddonPreferences):
     bl_idname = __name__
 
@@ -306,7 +299,11 @@ class Auto_Koda_Preferences(AddonPreferences):
         layout.label(text="Select your Shaders.blend file below")
         layout.prop(self, "shadersPath")
 
-classes = [Auto_Koda_Selected, Auto_Koda_All, Crunchs_Secret_Button, Auto_Koda_Button, Auto_Koda_Preferences]
+classes = [Auto_Koda_Selected, 
+           Auto_Koda_All, 
+           Crunchs_Secret_Button, 
+           Auto_Koda_Button, 
+           Auto_Koda_Preferences]
 
 def register():
     print('wagwan world')
