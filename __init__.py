@@ -135,7 +135,7 @@ def replaceNodeGroup(obj, old_group_name, new_group_name):
                     if old_group_name == "SWTOR - SkinB Shader" and new_group_name == "CaptnKoda SWTOR - SkinB Shader":
                         
                         #Create missing nodes
-                        wrinkle_map_node = createNewImageNode(nodes, 'animatedWrinklesMap', node.location[0] - 800, node.location[1] - 200, True)
+                        wrinkle_map_node = createNewImageNode(nodes, 'animatedWrinkleMap', node.location[0] - 800, node.location[1] - 200, True)
                         wrinkle_mask_node = createNewImageNode(nodes, 'animatedWrinkleMask', node.location[0] - 800, node.location[1], True)
                         scarMapNode = createNewImageNode(nodes, 'ScarMap', node.location[0] - 800, node.location[1] - 400, False)
 
