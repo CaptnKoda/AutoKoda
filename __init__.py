@@ -1,23 +1,7 @@
 import bpy
+from . import config
 from bpy.props import StringProperty                   
 from bpy.types import AddonPreferences
-
-#Global Consts
-KODA_NODE_NAMES = {
-    "EYE"       : "CaptnKoda SWTOR - Eye Shader",
-    "GARMENT"   : "CaptnKoda SWTOR - Garment Shader",
-    "HAIRC"     : "CaptnKoda SWTOR - HairC Shader",
-    "SKINB"     : "CaptnKoda SWTOR - SkinB Shader",
-    "UBER"      : "CaptnKoda SWTOR - Uber Shader",
-}
-
-HERO_GRAVITAS_NODE_NAMES = {
-    "EYE"       : "SWTOR - Eye Shader",
-    "GARMENT"   : "SWTOR - Garment Shader",
-    "HAIRC"     : "SWTOR - HairC Shader",
-    "SKINB"     : "SWTOR - SkinB Shader",
-    "UBER"      : "SWTOR - Uber Shader",
-}
 
 #Functions
 def getNodeGroup(materials, group_name):
@@ -25,7 +9,6 @@ def getNodeGroup(materials, group_name):
         if mat.use_nodes:
             for node in mat.node_tree.nodes:
                 if node.type == 'GROUP' and node.node_tree.name == group_name:
-                    print(f"Analysing node group {node.node_tree.name}.")
                     return node.node_tree
 
     return None
@@ -42,7 +25,6 @@ def linkImageFromShaders(node, image_name): #Links a given image from Shaders.bl
 
     with bpy.data.libraries.load(shaders_blend_path, link=True) as (data_from, data_to):
         if image_name in data_from.images:
-            print(f"Found image: {image_name}")
             data_to.images = [image_name]
         else:
             print(f"Image '{image_name}' not found in Shaders.blend.")
@@ -55,7 +37,6 @@ def linkImageFromShaders(node, image_name): #Links a given image from Shaders.bl
 
     if hasattr(node, 'image'):
         node.image = image
-        print(f"Linked image '{image_name}' to node '{node.name}'")
     else:
         print(f"Node '{node.name}' does not support image assignment.")
 
@@ -66,14 +47,22 @@ def createNewImageNode(nodes, label, x, y, minimize): #Creates a new Image Textu
     newImageNode.hide = minimize
     return newImageNode
 
-def replaceNodeGroup(obj, old_group_name, new_group_name):
+def getKodaSocketFromHero(heroSocketName):
+    kodaSocketName = config.HERO_TO_KODA_SOCKETS.get(heroSocketName)
+
+    if kodaSocketName:
+        return kodaSocketName
+    else:
+        return heroSocketName
+
+def replaceNodeGroup(obj, heroGroupName, kodaGroupName):
     if not obj or not obj.active_material:
         print("No active material found on the selected object.")
         return
     
-    new_group = bpy.data.node_groups.get(new_group_name)
-    if not new_group:
-        print(f"New node group '{new_group_name}' not found.")
+    newKodaNodeGroup = bpy.data.node_groups.get(kodaGroupName)
+    if not newKodaNodeGroup:
+        print(f"New node group '{kodaGroupName}' not found.")
         return
 
     for mat in obj.data.materials:
@@ -82,30 +71,33 @@ def replaceNodeGroup(obj, old_group_name, new_group_name):
             links = mat.node_tree.links
             
             for node in nodes:
-                if node.type == 'GROUP' and node.node_tree and node.node_tree.name == old_group_name:
+                if node.type == 'REROUTE':
+                    nodes.remove(node)
+                    continue
+                
+                if node.type == 'GROUP' and node.node_tree and node.node_tree.name == heroGroupName:
                     # Store node properties
-                    node_location = node.location
                     node_label = node.label
 
                     # Store links and socket values
                     input_links = {}
                     output_links = {}
                     input_values = {}
-
+                    
                     for input_socket in node.inputs:
                         if input_socket.is_linked:
-                            input_links[input_socket.name] = [link.from_socket for link in input_socket.links]
+                            input_links[getKodaSocketFromHero(input_socket.name)] = [link.from_socket for link in input_socket.links]
                         else:
-                            input_values[input_socket.name] = input_socket.default_value
+                            input_values[getKodaSocketFromHero(input_socket.name)] = input_socket.default_value
 
                     for output_socket in node.outputs:
                         output_links[output_socket.name] = [link.to_socket for link in output_socket.links]
 
                     # Assign new node group
-                    node.node_tree = new_group
+                    node.node_tree = newKodaNodeGroup
                     
                     # Restore node properties
-                    node.location = node_location
+                    node.location = (0, 0)
                     node.label = node_label
 
                     # Restore input links if matching sockets exist
@@ -132,23 +124,21 @@ def replaceNodeGroup(obj, old_group_name, new_group_name):
                                     print(f"Failed to reconnect output {output_socket.name}: {e}")
 
                     # Manually entering in SkinB additions
-                    if old_group_name == "SWTOR - SkinB Shader" and new_group_name == "CaptnKoda SWTOR - SkinB Shader":
+                    if heroGroupName == "SWTOR - SkinB Shader" and kodaGroupName == "CaptnKoda SWTOR - SkinB Shader":
                         
                         #Create missing nodes
                         wrinkle_map_node = createNewImageNode(nodes, 'animatedWrinkleMap', node.location[0] - 800, node.location[1] - 200, True)
                         wrinkle_mask_node = createNewImageNode(nodes, 'animatedWrinkleMask', node.location[0] - 800, node.location[1], True)
-                        scarMapNode = createNewImageNode(nodes, 'ScarMap', node.location[0] - 800, node.location[1] - 400, False)
+                        ageMapWrinkleNode = createNewImageNode(nodes, 'AgeMapWrinkles', node.location[0] - 800, node.location[1] - 400, False)
 
                         # Manually setting defaults
-                        node.inputs["Holographic"].default_value = 0.0
+                        node.inputs["Hologram Effect"].default_value = 0.0
                         node.inputs["Maximum Roughness"].default_value = 0.4
 
                         # Load the wrinkle map image from the Shaders.blend
-                        shaders_blend_path = getShadersBlendPath()
-                        if shaders_blend_path:
-                            linkImageFromShaders(wrinkle_map_node, 'wrinkles_compressed_bmn_c01_wrinkles_stretched_bmn_c01_w.dd')
-                            linkImageFromShaders(wrinkle_mask_node, 'wrinkles_colormask01_wrinkles_colormask02_wm.dds')
-                            linkImageFromShaders(scarMapNode, 'age_non_non_none_u.dds')
+                        linkImageFromShaders(wrinkle_map_node, 'wrinkles_compressed_bmn_c01_wrinkles_stretched_bmn_c01_w.dd')
+                        linkImageFromShaders(wrinkle_mask_node, 'wrinkles_colormask01_wrinkles_colormask02_wm.dds')
+                        linkImageFromShaders(ageMapWrinkleNode, 'age_non_non_none_u.dds')
 
                         # Link to the new node group if inputs exist
                         if "animatedWrinkleMap Color" in node.inputs:
@@ -161,28 +151,43 @@ def replaceNodeGroup(obj, old_group_name, new_group_name):
                         if "animatedWrinkleMask Alpha" in node.inputs:
                             links.new(wrinkle_mask_node.outputs['Alpha'], node.inputs["animatedWrinkleMask Alpha"])
 
-                        if "Scar RotationMap Color" in node.inputs:
-                            links.new(scarMapNode.outputs['Color'], node.inputs["Scar RotationMap Color"])
-                        if "Scar RotationMap Alpha" in node.inputs:
-                            links.new(scarMapNode.outputs['Alpha'], node.inputs["Scar RotationMap Alpha"])                         
+                        if "AgeMap Color" in node.inputs:
+                            links.new(ageMapWrinkleNode.outputs['Color'], node.inputs["AgeMap Color"])
+                        if "AgeMap Alpha" in node.inputs:
+                            links.new(ageMapWrinkleNode.outputs['Alpha'], node.inputs["AgeMap Alpha"])     
+
+            for node in nodes:
+                if node.type == 'TEX_IMAGE':
+                    node.hide = False
+                    node.mute = False
+                    node.width = config.COMMON_NODE_WIDTH
+
+                    if node.label in config.PRIMARY_NODE_LOCS:
+                        node.location = (config.PRIMARY_NODE_LOCS.get(node.label))
+                        
+                    elif node.label in config.SECONDARY_NODE_LOCS:
+                        node.location = (config.SECONDARY_NODE_LOCS.get(node.label))
+
+                    elif node.label in config.TERTIARY_NODE_LOCS:
+                        node.location = (config.TERTIARY_NODE_LOCS.get(node.label))
 
 def processObject(obj): #process_object
             detectedShader = None
             detectedNodeGroupName = None
             shadersBlend = getShadersBlendPath()
 
-            for node in HERO_GRAVITAS_NODE_NAMES.values():
+            for node in config.HERO_GRAVITAS_NODE_NAMES.values():
                 detectedNodeGroup = getNodeGroup(obj.data.materials, node)
                 if detectedNodeGroup:
                     detectedNodeGroupName = detectedNodeGroup.name
-                    detectedShader = getValueKey(HERO_GRAVITAS_NODE_NAMES, detectedNodeGroupName)
+                    detectedShader = getValueKey(config.HERO_GRAVITAS_NODE_NAMES, detectedNodeGroupName)
                     break
 
             if not detectedShader or not detectedNodeGroupName:
                 print(f"No matching shader for {obj.name}")
                 return
 
-            kodaShaderName = KODA_NODE_NAMES.get(detectedShader)
+            kodaShaderName = config.KODA_NODE_NAMES.get(detectedShader)
             if not kodaShaderName:
                 print(f"No Koda shader for {obj.name}")
                 return
@@ -202,7 +207,6 @@ def processObject(obj): #process_object
                 print(f"Failed to link {kodaShaderName} for {obj.name}")
                 return
 
-            print(f"[{obj.name}] Replacing {detectedNodeGroupName} with {kodaNodeGroup.name}")
             replaceNodeGroup(obj, detectedNodeGroupName, kodaNodeGroup.name)
 
 def getShadersBlendPath(): #Retrieve the file path set in the addon's preferences for Shaders.blend
@@ -249,12 +253,21 @@ class Auto_Koda_All(bpy.types.Operator):
     
 class Crunchs_Secret_Button(bpy.types.Operator):
     bl_idname = "autokoda.crunch"
-    bl_label = "Crunch's Secret Button"
-    bl_description = "deploy the goon squad"
+    bl_label = "Auto ZG-Tools"
+    bl_description = "Auto ZG-Tools, then Auto Koda"
 
     def execute(self, context):
-        print('its goonin time')
-        #The good shit goes here.
+        shadersBlend = getShadersBlendPath()
+        if not shadersBlend:
+            self.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
+            return {'CANCELLED'}
+        
+        for obj in bpy.context.selected_objects:
+            if obj.type == 'MESH':
+                bpy.ops.zgswtor.process_named_mats(use_selection_only=True, use_overwrite_bool=False, use_collect_colliders_bool=True)
+                bpy.ops.zgswtor.customize_swtor_shaders(use_selection_only=True)
+                processObject(obj)
+
         return {'FINISHED'}
 
 class Auto_Koda_Button(bpy.types.Panel):
@@ -275,7 +288,7 @@ class Auto_Koda_Button(bpy.types.Panel):
         box = layout.box()
         row = box.row()
 
-        if 'Shaders.blend' not in shadersBlendLoc:
+        if '.blend' not in shadersBlendLoc:
             row.alert = True
             row.label(text="Shaders.blend path not set!", icon='ERROR')
             box.operator("preferences.addon_show", text="Set Shaders.blend", icon='FILE_FOLDER').module = __name__
@@ -297,7 +310,7 @@ class Auto_Koda_Preferences(AddonPreferences):
     def draw(self, context):
         layout = self.layout
         layout.label(text="Select your Shaders.blend file below")
-        layout.prop(self, "shadersPath")
+        layout.prop(self, "shadersPath", text="Shaders.blend Path")
 
 classes = [Auto_Koda_Selected, 
            Auto_Koda_All, 
