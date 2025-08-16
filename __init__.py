@@ -54,6 +54,19 @@ def getKodaSocketFromHero(heroSocketName):
         return kodaSocketName
     else:
         return heroSocketName
+    
+def addReroute(tree, loc, from_socket, to_socket):
+    reroute = tree.nodes.new(type="NodeReroute")
+    reroute.location = loc
+
+    # Disconnect old link
+    for link in from_socket.links:
+        if link.to_socket == to_socket:
+            tree.links.remove(link)
+
+    # Add reroute and reconnect
+    tree.links.new(from_socket, reroute.inputs[0])
+    tree.links.new(reroute.outputs[0], to_socket)
 
 def replaceNodeGroup(obj, heroGroupName, kodaGroupName):
     if not obj or not obj.active_material:
@@ -170,6 +183,11 @@ def replaceNodeGroup(obj, heroGroupName, kodaGroupName):
 
                     elif node.label in config.TERTIARY_NODE_LOCS:
                         node.location = (config.TERTIARY_NODE_LOCS.get(node.label))
+                        for output_name in ['Color', 'Alpha']:
+                            if output_name in node.outputs:
+                                output_socket = node.outputs[output_name]
+                                for link in list(output_socket.links):
+                                    addReroute(node.id_data, config.TERTIARY_NODE_ROUTE_LOCS.get(node.label), output_socket, link.to_socket)
 
 def processObject(obj): #process_object
             detectedShader = None

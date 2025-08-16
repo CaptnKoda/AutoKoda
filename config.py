@@ -4,6 +4,7 @@ KODA_NODE_NAMES = {
     "HAIRC"     : "CaptnKoda SWTOR - HairC Shader",
     "SKINB"     : "CaptnKoda SWTOR - SkinB Shader",
     "UBER"      : "CaptnKoda SWTOR - Uber Shader",
+    #"ANIMATEDUV": "CaptnKodaAndC3PO SWTOR - AnimatedUV Shader"
 }
 
 HERO_GRAVITAS_NODE_NAMES = {
@@ -12,6 +13,7 @@ HERO_GRAVITAS_NODE_NAMES = {
     "HAIRC"     : "SWTOR - HairC Shader",
     "SKINB"     : "SWTOR - SkinB Shader",
     "UBER"      : "SWTOR - Uber Shader",
+    #"ANIMATEDUV": "SWTOR - AnimatedUV Shader"
 }
 
 HERO_TO_KODA_SOCKETS = {
@@ -73,4 +75,9 @@ SECONDARY_NODE_LOCS = {
 TERTIARY_NODE_LOCS = {
    label: (-1080.0,  COMMON_NODE_HEIGHT * -i)
    for i, label in enumerate(TERTIARY_LABELS)
+}
+
+TERTIARY_NODE_ROUTE_LOCS = {
+    label: (-COMMON_NODE_WIDTH * 2,  (COMMON_NODE_HEIGHT * -i) - COMMON_NODE_HEIGHT)
+    for i, label in enumerate(TERTIARY_LABELS)
 }
