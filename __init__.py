@@ -2,8 +2,6 @@ import bpy
 from . import config
 from bpy.props import StringProperty                   
 from bpy.types import AddonPreferences
-import traceback
-import os
 
 #Functions
 def getNodeGroup(materials, group_name):
@@ -71,9 +69,6 @@ def addReroute(tree, loc, from_socket, to_socket):
     tree.links.new(reroute.outputs[0], to_socket)
 
 def replaceNodeGroup(obj, heroGroupName, kodaGroupName):
-    print(f"\n--- replaceNodeGroup called for {obj.name} ---")
-    print(f"Looking for '{heroGroupName}' > '{kodaGroupName}'")
-
     if not obj or not obj.active_material:
         print("No active material found on the selected object.")
         return
@@ -87,36 +82,96 @@ def replaceNodeGroup(obj, heroGroupName, kodaGroupName):
 
     for mat in obj.data.materials:
         if mat and mat.use_nodes:
-            print(f" Processing material: {mat.name}")
+            print(f"Processing material: {mat.name}")
             nodes = mat.node_tree.nodes
             links = mat.node_tree.links
             
             for node in nodes:
-                if node.type == 'GROUP' and node.node_tree:
-                    print(f" Found GROUP node: {node.node_tree.name}")
-
+                if node.type == 'REROUTE':
+                    nodes.remove(node)
+                    continue
+                
                 if node.type == 'GROUP' and node.node_tree and node.node_tree.name == heroGroupName:
-                    print(f"Matched hero group '{heroGroupName}' in node '{node.name}'")
+                    print(f"Found GROUP node: {node.node_tree.name}")
+                    # Store node properties
+                    node_label = node.label
 
-                    try:
-                        # Assign new node group
-                        node.node_tree = newKodaNodeGroup
-                        print(f"Replaced with '{newKodaNodeGroup.name}'")
-                    except Exception as e:
-                        print(f"Failed to assign new node group: {e}")
-                        traceback.print_exc()
+                    # Store links and socket values
+                    input_links = {}
+                    output_links = {}
+                    input_values = {}
+                    
+                    for input_socket in node.inputs:
+                        if input_socket.is_linked:
+                            input_links[getKodaSocketFromHero(input_socket.name)] = [link.from_socket for link in input_socket.links]
+                        else:
+                            input_values[getKodaSocketFromHero(input_socket.name)] = input_socket.default_value
 
-                    # Wrinkle nodes creation
+                    for output_socket in node.outputs:
+                        output_links[output_socket.name] = [link.to_socket for link in output_socket.links]
+
+                    # Assign new node group
+                    node.node_tree = newKodaNodeGroup
+                    
+                    # Restore node properties
+                    node.location = (0, 0)
+                    node.label = node_label
+
+                    # Restore input links if matching sockets exist
+                    for input_socket in node.inputs:
+                        if input_socket.name in input_links:
+                            for from_socket in input_links[input_socket.name]:
+                                try:
+                                    links.new(from_socket, input_socket)
+                                except Exception as e:
+                                    print(f"Failed to reconnect input {input_socket.name}: {e}")
+                        elif input_socket.name in input_values:
+                            try:
+                                input_socket.default_value = input_values[input_socket.name]
+                            except Exception as e:
+                                print(f"Failed to restore value for {input_socket.name}: {e}")
+
+                    # Restore output links if matching sockets exist
+                    for output_socket in node.outputs:
+                        if output_socket.name in output_links:
+                            for to_socket in output_links[output_socket.name]:
+                                try:
+                                    links.new(output_socket, to_socket)
+                                except Exception as e:
+                                    print(f"Failed to reconnect output {output_socket.name}: {e}")
+
+                    # Manually entering in SkinB additions
                     if heroGroupName == "SWTOR - SkinB Shader" and kodaGroupName == "CaptnKoda SWTOR - SkinB Shader":
-                        print("Creating wrinkle nodes...")
-                        try:
-                            wrinkle_map_node = createNewImageNode(nodes, 'animatedWrinkleMap', node.location[0] - 800, node.location[1] - 200, True)
-                            wrinkle_mask_node = createNewImageNode(nodes, 'animatedWrinkleMask', node.location[0] - 800, node.location[1], True)
-                            ageMapWrinkleNode = createNewImageNode(nodes, 'AgeMapWrinkles', node.location[0] - 800, node.location[1] - 400, False)
-                            print("Wrinkle nodes created")
-                        except Exception as e:
-                            print(f"Failed creating wrinkle nodes: {e}")
-                            traceback.print_exc()
+                        
+                        #Create missing nodes
+                        wrinkle_map_node = createNewImageNode(nodes, 'animatedWrinkleMap', node.location[0] - 800, node.location[1] - 200, True)
+                        wrinkle_mask_node = createNewImageNode(nodes, 'animatedWrinkleMask', node.location[0] - 800, node.location[1], True)
+                        ageMapWrinkleNode = createNewImageNode(nodes, 'AgeMapWrinkles', node.location[0] - 800, node.location[1] - 400, False)
+
+                        # Manually setting defaults
+                        node.inputs["Hologram Effect"].default_value = 0.0
+                        node.inputs["Maximum Roughness"].default_value = 0.4
+
+                        # Load the wrinkle map image from the Shaders.blend
+                        linkImageFromShaders(wrinkle_map_node, 'wrinkles_compressed_bmn_c01_wrinkles_stretched_bmn_c01_w.dd')
+                        linkImageFromShaders(wrinkle_mask_node, 'wrinkles_colormask01_wrinkles_colormask02_wm.dds')
+                        linkImageFromShaders(ageMapWrinkleNode, 'age_non_non_none_u.dds')
+
+                        # Link to the new node group if inputs exist
+                        if "animatedWrinkleMap Color" in node.inputs:
+                            links.new(wrinkle_map_node.outputs['Color'], node.inputs["animatedWrinkleMap Color"])
+                        if "animatedWrinkleMap Alpha" in node.inputs:
+                            links.new(wrinkle_map_node.outputs['Alpha'], node.inputs["animatedWrinkleMap Alpha"])
+
+                        if "animatedWrinkleMask Color" in node.inputs:
+                            links.new(wrinkle_mask_node.outputs['Color'], node.inputs["animatedWrinkleMask Color"])
+                        if "animatedWrinkleMask Alpha" in node.inputs:
+                            links.new(wrinkle_mask_node.outputs['Alpha'], node.inputs["animatedWrinkleMask Alpha"])
+
+                        if "AgeMap Color" in node.inputs:
+                            links.new(ageMapWrinkleNode.outputs['Color'], node.inputs["AgeMap Color"])
+                        if "AgeMap Alpha" in node.inputs:
+                            links.new(ageMapWrinkleNode.outputs['Alpha'], node.inputs["AgeMap Alpha"])     
 
             for node in nodes:
                 if node.type == 'TEX_IMAGE':
@@ -182,6 +237,9 @@ def getShadersBlendPath(): #Retrieve the file path set in the addon's preference
     except Exception as e:
         print(f"Could not retrieve shaders path: {e}")
         return ""
+
+#Classes
+    
 
 # ====================
 # Atroxa SkinB & HairC Transfer
@@ -258,7 +316,6 @@ class Atroxa_SkinB_Transfer(bpy.types.Operator):
 
         return {'FINISHED'}
 
-#Classes
 class Auto_Koda_Selected(bpy.types.Operator):
     bl_idname = "autokoda.convert_selected"
     bl_label = "Auto Koda"
@@ -311,17 +368,6 @@ class Crunchs_Secret_Button(bpy.types.Operator):
                 processObject(obj)
 
         return {'FINISHED'}
-        
-        
-class Node_Arrange(bpy.types.Operator):
-    bl_idname = "autokoda.nodearrange"
-    bl_label = "Auto ZG-Tools"
-    bl_description = "Automatically arrange nodes"
-
-    def execute(self, context):
-        
-
-        return {'FINISHED'}
 
 class Auto_Koda_Button(bpy.types.Panel):
     bl_idname = "VIEW3D_PT_auto_koda"
@@ -371,8 +417,7 @@ classes = [Auto_Koda_Selected,
            Crunchs_Secret_Button, 
            Auto_Koda_Button, 
            Auto_Koda_Preferences,
-           Atroxa_SkinB_Transfer,
-           Node_Arrange]
+           Atroxa_SkinB_Transfer]
 
 def register():
     print('wagwan world')
