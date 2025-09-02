@@ -36,6 +36,31 @@ HERO_TO_KODA_SOCKETS = {
     "AgeMap Alpha"            : "Scar RotationMap Alpha"
 }
 
+ATROXA_TO_KODA_SOCKETS = { 
+    "diffuseMap": "DiffuseMap",
+    "rotationMap": "RotationMap1",
+    "glossMap": "GlossMap",
+    "paletteMap": "PaletteMap",
+    "paletteMaskMap": "PaletteMaskMap",
+    
+    
+    "ageMap": "AgeMap",
+    "complexionMap": "ComplexionMap",
+    "facepaintMap": "FacepaintMap",
+    
+    "directionMap": "DirectionMap"
+}
+
+ATROXA_TO_KODA_VALUES = {
+    "palette1_hue": "Palette1 Hue",
+    "palette1_saturation": "Palette1 Saturation",
+    "palette1_brightness": "Palette1 Brightness",
+    "palette1_contrast": "Palette1 Contrast",
+    "palette1_specular": "Specular Tint",
+    
+    "flush_tone": "Flush Tone"
+}
+
 COMMON_NODE_X = -680
 
 COMMON_NODE_WIDTH = 375

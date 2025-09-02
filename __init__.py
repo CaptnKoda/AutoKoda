@@ -75,11 +75,14 @@ def replaceNodeGroup(obj, heroGroupName, kodaGroupName):
     
     newKodaNodeGroup = bpy.data.node_groups.get(kodaGroupName)
     if not newKodaNodeGroup:
-        print(f"New node group '{kodaGroupName}' not found.")
+        print(f"New node group '{kodaGroupName}' not found in bpy.data.node_groups.")
         return
+    else:
+        print(f"Found Koda node group: {newKodaNodeGroup.name}")
 
     for mat in obj.data.materials:
         if mat and mat.use_nodes:
+            print(f"Processing material: {mat.name}")
             nodes = mat.node_tree.nodes
             links = mat.node_tree.links
             
@@ -89,6 +92,7 @@ def replaceNodeGroup(obj, heroGroupName, kodaGroupName):
                     continue
                 
                 if node.type == 'GROUP' and node.node_tree and node.node_tree.name == heroGroupName:
+                    print(f"Found GROUP node: {node.node_tree.name}")
                     # Store node properties
                     node_label = node.label
 
@@ -235,6 +239,83 @@ def getShadersBlendPath(): #Retrieve the file path set in the addon's preference
         return ""
 
 #Classes
+    
+
+# ====================
+# Atroxa SkinB & HairC Transfer
+# ====================
+class Atroxa_SkinB_Transfer(bpy.types.Operator):
+    bl_idname = "atroxa.skinb_transfer"
+    bl_label = "Atroxa SkinB/HairC Transfer"
+    bl_description = "Transfer images and values from SWTOR Hero node to CaptnKoda SkinB or HairC Shader"
+
+    def execute(self, context):
+        # Clear console (Windows/Linux)
+        os.system('cls' if os.name == 'nt' else 'clear')
+
+        mat_tree = context.object.active_material.node_tree
+
+        # Find the SWTOR HeroEngine node
+        swtor_node = None
+        for node in mat_tree.nodes:
+            if getattr(node, "bl_idname", "") == "ShaderNodeHeroEngine":
+                swtor_node = node
+                break
+        if not swtor_node:
+            self.report({'ERROR'}, "No SWTOR (ShaderNodeHeroEngine) node found")
+            return {'CANCELLED'}
+
+        # Detect whether it's SkinB or HairC shader
+        skinb_node = mat_tree.nodes.get("CaptnKoda SWTOR - SkinB Shader")
+        hairc_node = mat_tree.nodes.get("CaptnKoda SWTOR - HairC Shader")
+
+        if skinb_node:
+            target_node = skinb_node
+            shader_type = "SkinB"
+
+        elif hairc_node:
+            target_node = hairc_node
+            shader_type = "HairC"
+
+        else:
+            self.report({'ERROR'}, "Could not find CaptnKoda SkinB or HairC Shader node")
+            return {'CANCELLED'}
+
+        # Copy images
+        for attr_name, dest_name in config.ATROXA_TO_KODA_SOCKETS.items():
+            src_image = getattr(swtor_node, attr_name, None)
+            dest_node = mat_tree.nodes.get(dest_name)
+
+            if src_image and dest_node and dest_node.type == 'TEX_IMAGE':
+                dest_node.image = src_image
+                print(f"[{shader_type}] Copied '{attr_name}': '{dest_name}' ({src_image.name})")
+            else:
+                print(f"[{shader_type}] Skipped '{attr_name}': '{dest_name}' (no image or node missing)")
+
+        # Copy values (only for SkinB)
+        for attr_name, input_name in config.ATROXA_TO_KODA_VALUES.items():
+            src_value = getattr(swtor_node, attr_name, None)
+            if src_value is None:
+                print(f"[{shader_type}] Skipped '{attr_name}': '{input_name}' (no value)")
+                continue
+
+            if input_name not in target_node.inputs:
+                print(f"[{shader_type}] Skipped '{attr_name}': '{input_name}' (input not found)")
+                continue
+
+            input_socket = target_node.inputs[input_name]
+
+            if isinstance(src_value, (float, int)) and input_socket.type == 'VALUE':
+                input_socket.default_value = src_value
+                print(f"[{shader_type}] Copied float '{attr_name}': '{input_name}' ({src_value})")
+            elif hasattr(src_value, "__len__") and len(src_value) >= 3 and input_socket.type == 'RGBA':
+                input_socket.default_value[0:len(src_value)] = src_value
+                print(f"[{shader_type}] Copied vector '{attr_name}': '{input_name}' ({list(src_value)})")
+            else:
+                print(f"[{shader_type}] Skipped '{attr_name}': '{input_name}' (type mismatch)")
+
+        return {'FINISHED'}
+
 class Auto_Koda_Selected(bpy.types.Operator):
     bl_idname = "autokoda.convert_selected"
     bl_label = "Auto Koda"
@@ -317,6 +398,7 @@ class Auto_Koda_Button(bpy.types.Panel):
         layout.operator(Auto_Koda_Selected.bl_idname, text="Auto Koda (Selected)", icon='RESTRICT_SELECT_OFF')
         layout.operator(Auto_Koda_All.bl_idname, text="Auto Koda (All)", icon='SCENE_DATA')
         layout.operator(Crunchs_Secret_Button.bl_idname, text="Crunch's Secret Button", icon='POSE_HLT')
+        layout.operator(Atroxa_SkinB_Transfer.bl_idname, text="Atroxa SkinB/HairC Transfer", icon='SHADERFX')
 
 class Auto_Koda_Preferences(AddonPreferences):
     bl_idname = __name__
@@ -334,7 +416,8 @@ classes = [Auto_Koda_Selected,
            Auto_Koda_All, 
            Crunchs_Secret_Button, 
            Auto_Koda_Button, 
-           Auto_Koda_Preferences]
+           Auto_Koda_Preferences,
+           Atroxa_SkinB_Transfer]
 
 def register():
     print('wagwan world')
