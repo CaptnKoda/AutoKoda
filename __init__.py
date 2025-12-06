@@ -1,320 +1,266 @@
 import bpy
 from . import config
-from bpy.props import StringProperty                   
+from bpy.props import StringProperty
 from bpy.types import AddonPreferences
 
-#Functions
-def getNodeGroup(materials, group_name):
-    for mat in materials:
-        if mat.use_nodes:
-            for node in mat.node_tree.nodes:
-                if node.type == 'GROUP' and node.node_tree.name == group_name:
-                    return node.node_tree
 
-    return None
+def get_shaders_blend_path():
+    try:
+        prefs = bpy.context.preferences.addons[__name__].preferences
+        override_path = getattr(prefs, "shadersPath", "").strip()
+        if override_path and override_path.lower().endswith(".blend"):
+            return override_path
+    except Exception as e:
+        print(f"Could not retrieve shaders path from preferences: {e}")
 
-def getValueKey(dict, target_value): #Get a dictionary's key by it's value
-    for key, value in dict.items():
-        if value == target_value:
-            return key  # Returns the first matching key
-    print(f"Did not find key for value {target_value}.")
-    return None  # If not found
+    return config.DEFAULT_SHADERS
 
-def linkImageFromShaders(node, image_name): #Links a given image from Shaders.blend into a given image node object
-    shaders_blend_path = getShadersBlendPath()
+
+def assign_linked_material(obj, new_material, target_slot_index=None, preserve_inputs=False):
+    """
+    Replace the material in a specific slot with a linked material.
+    If target_slot_index is None, try to replace by material name or first empty slot.
+    """
+    if not obj or obj.type != 'MESH' or not new_material:
+        return
+
+    def copy_socket_value_safe(new_input, old_input):
+        try:
+            if not hasattr(new_input, 'default_value') or not hasattr(old_input, 'default_value'):
+                return
+
+            old_val = old_input.default_value
+
+            if isinstance(old_val, (list, tuple)):
+                old_val = list(old_val)
+                if len(old_val) != len(new_input.default_value):
+                    while len(old_val) < len(new_input.default_value):
+                        old_val.append(1.0)
+                    old_val = old_val[:len(new_input.default_value)]
+
+            elif isinstance(new_input.default_value, float) and isinstance(old_val, (list, tuple)):
+                old_val = float(old_val[0])
+
+            new_input.default_value = old_val
+
+        except Exception as e:
+            print(f"[Auto Koda] Skipping socket '{new_input.name}': {e}")
+
+    # Determine the slot index to replace
+    if target_slot_index is None:
+        # Try to find a slot with the same name
+        target_slot_index = next((i for i, mat in enumerate(obj.data.materials)
+                                  if mat and mat.name == new_material.name), None)
+        # Fallback: first empty slot
+        if target_slot_index is None:
+            target_slot_index = next((i for i, mat in enumerate(obj.data.materials) if mat is None), 0)
+
+    old_mat = obj.data.materials[target_slot_index]
+
+    # Preserve input values if requested
+    if preserve_inputs and old_mat and old_mat.use_nodes and new_material.use_nodes:
+        old_nodes_by_name = {node.name: node for node in old_mat.node_tree.nodes}
+
+        for new_node in new_material.node_tree.nodes:
+            old_node = old_nodes_by_name.get(new_node.name)
+            if not old_node:
+                continue
+
+            old_inputs_by_name = {inp.name: inp for inp in old_node.inputs}
+            for new_input in new_node.inputs:
+                old_input = old_inputs_by_name.get(new_input.name)
+                if old_input:   
+                    copy_socket_value_safe(new_input, old_input)
+
+    # Replace the material in the specific slot
+    obj.data.materials[target_slot_index] = new_material
+
+
+
+def link_material_from_shaders(material_name):
+    shaders_blend_path = get_shaders_blend_path()
+
+    if not shaders_blend_path:
+        print("Shaders.blend path invalid or not set.")
+        return None
 
     with bpy.data.libraries.load(shaders_blend_path, link=True) as (data_from, data_to):
-        if image_name in data_from.images:
-            data_to.images = [image_name]
+        if material_name in data_from.materials:
+            data_to.materials = [material_name]
         else:
-            print(f"Image '{image_name}' not found in Shaders.blend.")
-            return
+            print(f"Material '{material_name}' not found in {shaders_blend_path}")
+            return None
 
-    image = bpy.data.images.get(image_name)
-    if not image:
-        print(f"Failed to load image '{image_name}' into current file.")
-        return
+    mat = bpy.data.materials.get(material_name)
+    if not mat:
+        print(f"Failed to link material '{material_name}'")
+        return None
 
-    if hasattr(node, 'image'):
-        node.image = image
-    else:
-        print(f"Node '{node.name}' does not support image assignment.")
-
-def createNewImageNode(nodes, label, x, y, minimize): #Creates a new Image Texture node
-    newImageNode = nodes.new(type='ShaderNodeTexImage')
-    newImageNode.name = newImageNode.label = label
-    newImageNode.location = (x, y)
-    newImageNode.hide = minimize
-    return newImageNode
-
-def getKodaSocketFromHero(heroSocketName):
-    kodaSocketName = config.HERO_TO_KODA_SOCKETS.get(heroSocketName)
-
-    if kodaSocketName:
-        return kodaSocketName
-    else:
-        return heroSocketName
-    
-def addReroute(tree, loc, from_socket, to_socket):
-    reroute = tree.nodes.new(type="NodeReroute")
-    reroute.location = loc
-
-    # Disconnect old link
-    for link in from_socket.links:
-        if link.to_socket == to_socket:
-            tree.links.remove(link)
-
-    # Add reroute and reconnect
-    tree.links.new(from_socket, reroute.inputs[0])
-    tree.links.new(reroute.outputs[0], to_socket)
-
-def replaceNodeGroup(obj, heroGroupName, kodaGroupName):
-    if not obj or not obj.active_material:
-        print("No active material found on the selected object.")
-        return
-    
-    newKodaNodeGroup = bpy.data.node_groups.get(kodaGroupName)
-    if not newKodaNodeGroup:
-        print(f"New node group '{kodaGroupName}' not found in bpy.data.node_groups.")
-        return
-    else:
-        print(f"Found Koda node group: {newKodaNodeGroup.name}")
-
-    for mat in obj.data.materials:
-        if mat and mat.use_nodes:
-            print(f"Processing material: {mat.name}")
-            nodes = mat.node_tree.nodes
-            links = mat.node_tree.links
-            
-            for node in nodes:
-                if node.type == 'REROUTE':
-                    nodes.remove(node)
-                    continue
-                
-                if node.type == 'GROUP' and node.node_tree and node.node_tree.name == heroGroupName:
-                    print(f"Found GROUP node: {node.node_tree.name}")
-                    # Store node properties
-                    node_label = node.label
-
-                    # Store links and socket values
-                    input_links = {}
-                    output_links = {}
-                    input_values = {}
-                    
-                    for input_socket in node.inputs:
-                        if input_socket.is_linked:
-                            input_links[getKodaSocketFromHero(input_socket.name)] = [link.from_socket for link in input_socket.links]
-                        else:
-                            input_values[getKodaSocketFromHero(input_socket.name)] = input_socket.default_value
-
-                    for output_socket in node.outputs:
-                        output_links[output_socket.name] = [link.to_socket for link in output_socket.links]
-
-                    # Assign new node group
-                    node.node_tree = newKodaNodeGroup
-                    
-                    # Restore node properties
-                    node.location = (0, 0)
-                    node.label = node_label
-
-                    # Restore input links if matching sockets exist
-                    for input_socket in node.inputs:
-                        if input_socket.name in input_links:
-                            for from_socket in input_links[input_socket.name]:
-                                try:
-                                    links.new(from_socket, input_socket)
-                                except Exception as e:
-                                    print(f"Failed to reconnect input {input_socket.name}: {e}")
-                        elif input_socket.name in input_values:
-                            try:
-                                input_socket.default_value = input_values[input_socket.name]
-                            except Exception as e:
-                                print(f"Failed to restore value for {input_socket.name}: {e}")
-
-                    # Restore output links if matching sockets exist
-                    for output_socket in node.outputs:
-                        if output_socket.name in output_links:
-                            for to_socket in output_links[output_socket.name]:
-                                try:
-                                    links.new(output_socket, to_socket)
-                                except Exception as e:
-                                    print(f"Failed to reconnect output {output_socket.name}: {e}")
-
-                    # Manually entering in SkinB additions
-                    if heroGroupName == "SWTOR - SkinB Shader" and kodaGroupName == "CaptnKoda SWTOR - SkinB Shader":
-                        
-                        #Create missing nodes
-                        wrinkle_map_node = createNewImageNode(nodes, 'animatedWrinkleMap', node.location[0] - 800, node.location[1] - 200, True)
-                        wrinkle_mask_node = createNewImageNode(nodes, 'animatedWrinkleMask', node.location[0] - 800, node.location[1], True)
-                        ageMapWrinkleNode = createNewImageNode(nodes, 'AgeMapWrinkles', node.location[0] - 800, node.location[1] - 400, False)
-
-                        # Manually setting defaults
-                        node.inputs["Hologram Effect"].default_value = 0.0
-                        node.inputs["Maximum Roughness"].default_value = 0.4
-
-                        # Load the wrinkle map image from the Shaders.blend
-                        linkImageFromShaders(wrinkle_map_node, 'wrinkles_compressed_bmn_c01_wrinkles_stretched_bmn_c01_w.dd')
-                        linkImageFromShaders(wrinkle_mask_node, 'wrinkles_colormask01_wrinkles_colormask02_wm.dds')
-                        linkImageFromShaders(ageMapWrinkleNode, 'age_non_non_none_u.dds')
-
-                        # Link to the new node group if inputs exist
-                        if "animatedWrinkleMap Color" in node.inputs:
-                            links.new(wrinkle_map_node.outputs['Color'], node.inputs["animatedWrinkleMap Color"])
-                        if "animatedWrinkleMap Alpha" in node.inputs:
-                            links.new(wrinkle_map_node.outputs['Alpha'], node.inputs["animatedWrinkleMap Alpha"])
-
-                        if "animatedWrinkleMask Color" in node.inputs:
-                            links.new(wrinkle_mask_node.outputs['Color'], node.inputs["animatedWrinkleMask Color"])
-                        if "animatedWrinkleMask Alpha" in node.inputs:
-                            links.new(wrinkle_mask_node.outputs['Alpha'], node.inputs["animatedWrinkleMask Alpha"])
-
-                        if "AgeMap Color" in node.inputs:
-                            links.new(ageMapWrinkleNode.outputs['Color'], node.inputs["AgeMap Color"])
-                        if "AgeMap Alpha" in node.inputs:
-                            links.new(ageMapWrinkleNode.outputs['Alpha'], node.inputs["AgeMap Alpha"])     
-
-            for node in nodes:
-                if node.type == 'TEX_IMAGE':
-                    node.hide = False
-                    node.mute = False
-                    node.width = config.COMMON_NODE_WIDTH
-
-                    if node.label in config.PRIMARY_NODE_LOCS:
-                        node.location = (config.PRIMARY_NODE_LOCS.get(node.label))
-                        
-                    elif node.label in config.SECONDARY_NODE_LOCS:
-                        node.location = (config.SECONDARY_NODE_LOCS.get(node.label))
-
-                    elif node.label in config.TERTIARY_NODE_LOCS:
-                        node.location = (config.TERTIARY_NODE_LOCS.get(node.label))
-                        for output_name in ['Color', 'Alpha']:
-                            if output_name in node.outputs:
-                                output_socket = node.outputs[output_name]
-                                for link in list(output_socket.links):
-                                    addReroute(node.id_data, config.TERTIARY_NODE_ROUTE_LOCS.get(node.label), output_socket, link.to_socket)
-
-def processObject(obj): #process_object
-            detectedShader = None
-            detectedNodeGroupName = None
-            shadersBlend = getShadersBlendPath()
-
-            for node in config.HERO_GRAVITAS_NODE_NAMES.values():
-                detectedNodeGroup = getNodeGroup(obj.data.materials, node)
-                if detectedNodeGroup:
-                    detectedNodeGroupName = detectedNodeGroup.name
-                    detectedShader = getValueKey(config.HERO_GRAVITAS_NODE_NAMES, detectedNodeGroupName)
-                    break
-
-            if not detectedShader or not detectedNodeGroupName:
-                print(f"No matching shader for {obj.name}")
-                return
-
-            kodaShaderName = config.KODA_NODE_NAMES.get(detectedShader)
-            if not kodaShaderName:
-                print(f"No Koda shader for {obj.name}")
-                return
-
-            kodaNodeGroup = bpy.data.node_groups.get(kodaShaderName)
-
-            if not kodaNodeGroup or not kodaNodeGroup.library:
-                with bpy.data.libraries.load(shadersBlend, link=True) as (data_from, data_to):
-                    if kodaShaderName in data_from.node_groups:
-                        data_to.node_groups = [kodaShaderName]
-                    else:
-                        print(f"Koda shader '{kodaShaderName}' not found for {obj.name}")
-                        return
-
-            kodaNodeGroup = bpy.data.node_groups.get(kodaShaderName)
-            if not kodaNodeGroup:
-                print(f"Failed to link {kodaShaderName} for {obj.name}")
-                return
-
-            replaceNodeGroup(obj, detectedNodeGroupName, kodaNodeGroup.name)
-
-def getShadersBlendPath(): #Retrieve the file path set in the addon's preferences for Shaders.blend
     try:
-        return bpy.context.preferences.addons[__name__].preferences.shadersPath
-    except Exception as e:
-        print(f"Could not retrieve shaders path: {e}")
-        return ""
+        mat = mat.copy()
+    except:
+        print(f"Could not copy linked material '{material_name}'")
+        return None
 
-#Classes
-    
+    return mat
 
-# ====================
-# Atroxa SkinB & HairC Transfer
-# ====================
-class Atroxa_SkinB_Transfer(bpy.types.Operator):
-    bl_idname = "atroxa.skinb_transfer"
-    bl_label = "Atroxa SkinB/HairC Transfer"
-    bl_description = "Transfer images and values from SWTOR Hero node to CaptnKoda SkinB or HairC Shader"
+def transfer_textures(source_tree, target_tree):
+    """
+    Safely copy images from Hero Gravitas texture nodes to matching Koda texture nodes
+    based on HERO_GRAVITAS_TEX_NAMES mapping.
+    """
+    if not source_tree or not target_tree:
+        return
 
-    def execute(self, context):
-        # Clear console (Windows/Linux)
-        os.system('cls' if os.name == 'nt' else 'clear')
+    # Build source image nodes mapping
+    source_images = {node.name: node for node in source_tree.nodes if node.type == 'TEX_IMAGE'}
 
-        mat_tree = context.object.active_material.node_tree
+    # Iterate over target image nodes and copy images if a matching Hero node exists
+    for target_node in target_tree.nodes:
+        if target_node.type != 'TEX_IMAGE':
+            continue
 
-        # Find the SWTOR HeroEngine node
-        swtor_node = None
-        for node in mat_tree.nodes:
-            if getattr(node, "bl_idname", "") == "ShaderNodeHeroEngine":
-                swtor_node = node
-                break
-        if not swtor_node:
-            self.report({'ERROR'}, "No SWTOR (ShaderNodeHeroEngine) node found")
-            return {'CANCELLED'}
+        for hero_name, koda_name in config.HERO_GRAVITAS_TEX_NAMES.items():
+            if target_node.name == koda_name and hero_name in source_images:
+                source_node = source_images[hero_name]
+                try:
+                    target_node.image = source_node.image
+                except Exception as e:
+                    print(f"[Auto Koda] Failed to transfer image '{hero_name}' → '{koda_name}': {e}")
 
-        # Detect whether it's SkinB or HairC shader
-        skinb_node = mat_tree.nodes.get("CaptnKoda SWTOR - SkinB Shader")
-        hairc_node = mat_tree.nodes.get("CaptnKoda SWTOR - HairC Shader")
 
-        if skinb_node:
-            target_node = skinb_node
-            shader_type = "SkinB"
+def copy_node_inputs(source_node, target_node):
+    """
+    Copy the input socket values from source_node to target_node.
+    Only copies sockets that exist in both nodes.
+    """
+    if not source_node or not target_node:
+        return
 
-        elif hairc_node:
-            target_node = hairc_node
-            shader_type = "HairC"
+    source_inputs = {inp.name: inp for inp in source_node.inputs}
+    target_inputs = {inp.name: inp for inp in target_node.inputs}
 
-        else:
-            self.report({'ERROR'}, "Could not find CaptnKoda SkinB or HairC Shader node")
-            return {'CANCELLED'}
+    for name, target_input in target_inputs.items():
+        source_input = source_inputs.get(name)
+        if not source_input:
+            continue
 
-        # Copy images
-        for attr_name, dest_name in config.ATROXA_TO_KODA_SOCKETS.items():
-            src_image = getattr(swtor_node, attr_name, None)
-            dest_node = mat_tree.nodes.get(dest_name)
+        try:
+            old_val = source_input.default_value
 
-            if src_image and dest_node and dest_node.type == 'TEX_IMAGE':
-                dest_node.image = src_image
-                print(f"[{shader_type}] Copied '{attr_name}': '{dest_name}' ({src_image.name})")
-            else:
-                print(f"[{shader_type}] Skipped '{attr_name}': '{dest_name}' (no image or node missing)")
+            # Handle list/tuple vs float
+            if isinstance(old_val, (list, tuple)):
+                old_val = list(old_val)
+                while len(old_val) < len(target_input.default_value):
+                    old_val.append(1.0)
+                old_val = old_val[:len(target_input.default_value)]
+            elif isinstance(target_input.default_value, float) and isinstance(old_val, (list, tuple)):
+                old_val = float(old_val[0])
 
-        # Copy values (only for SkinB)
-        for attr_name, input_name in config.ATROXA_TO_KODA_VALUES.items():
-            src_value = getattr(swtor_node, attr_name, None)
-            if src_value is None:
-                print(f"[{shader_type}] Skipped '{attr_name}': '{input_name}' (no value)")
+            target_input.default_value = old_val
+        except Exception as e:
+            print(f"[Auto Koda] Failed to copy socket '{name}': {e}")
+
+def remap_old_material_references(old_mat, new_mat):
+    if not old_mat or not new_mat:
+        return
+
+    old_name = old_mat.name  # Cache name BEFORE removal
+    old_mat_ptr = old_mat    # Keep pointer for comparison only
+
+    # Replace old_mat in all objects that use it
+    for obj in bpy.data.objects:
+        if not obj or not hasattr(obj.data, "materials"):
+            continue
+
+        mats = obj.data.materials
+        for i, slot_mat in enumerate(mats):
+            if slot_mat == old_mat_ptr:
+                mats[i] = new_mat
+                print(f"[Auto Koda] Remapped material on '{obj.name}' slot {i}")
+
+    # After remapping, old_mat should have zero users.
+    # But Blender may report 1 user because our Python reference counts as one.
+    if old_mat_ptr.users <= 1:
+        try:
+            bpy.data.materials.remove(old_mat_ptr)
+            print(f"[Auto Koda] Removed unused material '{old_name}'")
+        except Exception as e:
+            print(f"[Auto Koda] Failed to remove '{old_name}': {e}")
+
+
+
+def process_object(obj):
+    """
+    Convert Hero Gravitas materials to Koda shaders on the given object.
+    Handles multiple materials safely, preserves input values, and copies textures.
+    """
+    if not obj or obj.type != 'MESH':
+        return
+
+    for slot_index, slot in enumerate(obj.material_slots):
+        mat = slot.material
+        if not mat or not mat.use_nodes:
+            continue
+
+        # Skip if material already contains a Koda shader
+        if any(node.type == 'GROUP' and node.node_tree and node.node_tree.name in config.KODA_NODE_NAMES.values()
+               for node in mat.node_tree.nodes):
+            print(f"[Auto Koda] Skipping '{mat.name}', already contains a Koda shader.")
+            continue
+
+        # Find Hero Gravitas node(s) in this material
+        hero_nodes = [node for node in mat.node_tree.nodes
+                      if node.type == 'GROUP' and node.node_tree
+                      and node.node_tree.name in config.HERO_GRAVITAS_NODE_NAMES.values()]
+
+        if not hero_nodes:
+            continue
+
+        for hero_node in hero_nodes:
+            # Determine the mapping key
+            hero_key = next((key for key, name in config.HERO_GRAVITAS_NODE_NAMES.items()
+                             if name == hero_node.node_tree.name), None)
+            if not hero_key:
                 continue
 
-            if input_name not in target_node.inputs:
-                print(f"[{shader_type}] Skipped '{attr_name}': '{input_name}' (input not found)")
+            koda_shader_name = config.KODA_NODE_NAMES.get(hero_key)
+            if not koda_shader_name:
+                print(f"[Auto Koda] No Koda shader defined for key '{hero_key}'")
                 continue
 
-            input_socket = target_node.inputs[input_name]
+            # Link Koda shader material
+            new_mat = link_material_from_shaders(koda_shader_name)
+            if not new_mat:
+                continue
 
-            if isinstance(src_value, (float, int)) and input_socket.type == 'VALUE':
-                input_socket.default_value = src_value
-                print(f"[{shader_type}] Copied float '{attr_name}': '{input_name}' ({src_value})")
-            elif hasattr(src_value, "__len__") and len(src_value) >= 3 and input_socket.type == 'RGBA':
-                input_socket.default_value[0:len(src_value)] = src_value
-                print(f"[{shader_type}] Copied vector '{attr_name}': '{input_name}' ({list(src_value)})")
-            else:
-                print(f"[{shader_type}] Skipped '{attr_name}': '{input_name}' (type mismatch)")
+            # Find the Koda node in the new material
+            koda_node = next((node for node in new_mat.node_tree.nodes
+                              if node.type == 'GROUP' and node.node_tree.name == koda_shader_name), None)
 
-        return {'FINISHED'}
+            # Copy input values from Hero node to Koda node
+            if hero_node and koda_node:
+                copy_node_inputs(hero_node, koda_node)
+
+            # Copy textures from Hero → Koda nodes
+            transfer_textures(mat.node_tree, new_mat.node_tree)
+
+            # Assign new material to the correct slot, preserving other inputs
+            assign_linked_material(obj, new_mat, target_slot_index=slot_index, preserve_inputs=True)
+
+            # Rename old material
+            old_name = mat.name
+            mat.name = f"{old_name}_OLD"
+            new_mat.name = old_name
+
+            old_mat = bpy.data.materials.get(f"{old_name}_OLD")
+            remap_old_material_references(old_mat, new_mat)
+
+            print(f"[Auto Koda] Replaced '{old_name}' with Koda shader '{koda_shader_name}' in slot {slot_index}")
+
+
+
+
 
 class Auto_Koda_Selected(bpy.types.Operator):
     bl_idname = "autokoda.convert_selected"
@@ -322,52 +268,17 @@ class Auto_Koda_Selected(bpy.types.Operator):
     bl_description = "Convert the shader of the selected object to a Koda shader"
 
     def execute(self, context):
-        shadersBlend = getShadersBlendPath()
+        shadersBlend = get_shaders_blend_path()
         if not shadersBlend:
             self.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
             return {'CANCELLED'}
-        
+
         for obj in bpy.context.selected_objects:
             if obj.type == 'MESH':
-                processObject(obj)
+                process_object(obj)
 
         return {'FINISHED'}
-    
-class Auto_Koda_All(bpy.types.Operator):
-    bl_idname = "autokoda.convert_all"
-    bl_label = "Auto Koda (All Objects)"
-    bl_description = "Convert the shaders of all objects in the scene to Koda shaders"
 
-    def execute(self, context):
-        shadersBlend = getShadersBlendPath()
-        if not shadersBlend:
-            self.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
-            return {'CANCELLED'}
-
-        for obj in bpy.context.scene.objects:
-            if obj.type == 'MESH' and obj.data.materials:
-                processObject(obj)
-
-        return {'FINISHED'}
-    
-class Crunchs_Secret_Button(bpy.types.Operator):
-    bl_idname = "autokoda.crunch"
-    bl_label = "Auto ZG-Tools"
-    bl_description = "Auto ZG-Tools, then Auto Koda"
-
-    def execute(self, context):
-        shadersBlend = getShadersBlendPath()
-        if not shadersBlend:
-            self.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
-            return {'CANCELLED'}
-        
-        for obj in bpy.context.selected_objects:
-            if obj.type == 'MESH':
-                bpy.ops.zgswtor.process_named_mats(use_selection_only=True, use_overwrite_bool=False, use_collect_colliders_bool=True)
-                bpy.ops.zgswtor.customize_swtor_shaders(use_selection_only=True)
-                processObject(obj)
-
-        return {'FINISHED'}
 
 class Auto_Koda_Button(bpy.types.Panel):
     bl_idname = "VIEW3D_PT_auto_koda"
@@ -376,56 +287,67 @@ class Auto_Koda_Button(bpy.types.Panel):
     bl_label = "Auto Koda"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    #bl_context = 'object'
 
     def draw(self, context):
         layout = self.layout
-        prefs = bpy.context.preferences.addons[__name__].preferences
-        shadersBlendLoc = prefs.shadersPath
+        status_box = layout.box()
 
-        # STATUS BLOCK
-        box = layout.box()
-        row = box.row()
+        shaders_blend_loc = get_shaders_blend_path()
 
-        if '.blend' not in shadersBlendLoc:
-            row.alert = True
-            row.label(text="Shaders.blend path not set!", icon='ERROR')
-            box.operator("preferences.addon_show", text="Set Shaders.blend", icon='FILE_FOLDER').module = __name__
+        if not shaders_blend_loc or ".blend" not in shaders_blend_loc:
+            status_box.alert = True
+            row = status_box.row()
+            row.label(text=f"Shaders.blend path not set or invalid: {shaders_blend_loc}", icon='ERROR')
+            row = status_box.row()
+            row.operator("preferences.addon_show", text="Set Shaders.blend", icon='FILE_FOLDER').module = __name__
+
+        elif shaders_blend_loc == config.DEFAULT_SHADERS:
+            row = status_box.row()
+            row.label(text="Using default Shaders.blend", icon='CHECKMARK')
+            row = status_box.row()
+            row.operator("preferences.addon_show", text="Set Custom Shaders.blend", icon='FILE_FOLDER').module = __name__
+
         else:
-            row.label(text="Shaders.blend path OK", icon='CHECKMARK')
+            row = status_box.row()
+            row.label(text="Using custom Shaders.blend w", icon='CHECKMARK')
+            row = status_box.row()
+            row.label(text=shaders_blend_loc, icon='FILE_BLEND')
+            row = status_box.row()
+            row.operator("preferences.addon_show", text="Change Custom Shaders.blend", icon='FILE_FOLDER').module = __name__
 
-        # ACTION BUTTONS
-        layout.operator(Auto_Koda_Selected.bl_idname, text="Auto Koda (Selected)", icon='RESTRICT_SELECT_OFF')
-        layout.operator(Auto_Koda_All.bl_idname, text="Auto Koda (All)", icon='SCENE_DATA')
-        layout.operator(Crunchs_Secret_Button.bl_idname, text="Crunch's Secret Button", icon='POSE_HLT')
-        layout.operator(Atroxa_SkinB_Transfer.bl_idname, text="Atroxa SkinB/HairC Transfer", icon='SHADERFX')
+        autoKodaRow = layout.row(align=True)
+        autoKodaRow.operator(Auto_Koda_Selected.bl_idname, text="Auto Koda (Selected)", icon='RESTRICT_SELECT_OFF')
+
 
 class Auto_Koda_Preferences(AddonPreferences):
     bl_idname = __name__
 
     shadersPath: StringProperty(
         name="",
-        subtype='FILE_PATH',) # type: ignore
+        subtype='FILE_PATH',
+    )
 
     def draw(self, context):
         layout = self.layout
         layout.label(text="Select your Shaders.blend file below")
         layout.prop(self, "shadersPath", text="Shaders.blend Path")
 
-classes = [Auto_Koda_Selected, 
-           Auto_Koda_All, 
-           Crunchs_Secret_Button, 
-           Auto_Koda_Button, 
-           Auto_Koda_Preferences,
-           Atroxa_SkinB_Transfer]
+
+classes = [
+    Auto_Koda_Selected,
+    Auto_Koda_Button,
+    Auto_Koda_Preferences
+]
+
 
 def register():
-    print('wagwan world')
-    print(__name__)
+    print('skibidi rizz world W')
     for cls in classes:
         bpy.utils.register_class(cls)
 
+
 def unregister():
-    print('killin on myself fr')
+    print('ts pmo, gng')
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
+        
