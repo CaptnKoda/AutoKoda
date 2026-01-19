@@ -3,8 +3,8 @@ schema_version = "1.0.0"
 # Example of manifest file for a Blender extension
 # Change the values according to your extension
 id = "autokoda"
-version = "2.0.0"
-name = "Autokoda"
+version = "2.2.0"
+name = "AutoKoda"
 tagline = "Replaces ZeroGravitas shaders with Koda shaders"
 maintainer = "Koda, Crunch"
 # Supported types: "add-on", "theme"

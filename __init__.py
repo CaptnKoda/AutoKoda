@@ -3,7 +3,9 @@ from . import config
 from bpy.props import StringProperty
 from bpy.types import AddonPreferences
 
-
+# ======================================================
+# ======================= Helpers ======================
+# ======================================================
 def get_shaders_blend_path():
     try:
         prefs = bpy.context.preferences.addons[__name__].preferences
@@ -83,10 +85,18 @@ def link_material_with_koda_group(koda_group_name):
         print("[Auto Koda] Shaders.blend path invalid or not set.")
         return None
 
+    # Ensure materials from the library are linked
     with bpy.data.libraries.load(shaders_blend_path, link=True) as (data_from, data_to):
-        data_to.materials = list(data_from.materials)
+        data_to.materials = data_from.materials
 
     for mat in bpy.data.materials:
+        # CRITICAL FILTERS
+        if mat.library is None:
+            continue
+
+        if mat.library.filepath != shaders_blend_path:
+            continue
+
         if not mat.use_nodes:
             continue
 
@@ -96,13 +106,14 @@ def link_material_with_koda_group(koda_group_name):
                 and node.node_tree
                 and node.node_tree.name == koda_group_name
             ):
+                # Always copy from a clean, linked template
                 try:
                     return mat.copy()
                 except Exception as e:
                     print(f"[Auto Koda] Failed to copy material for '{koda_group_name}': {e}")
                     return None
 
-    print(f"[Auto Koda] No material found containing node group '{koda_group_name}'")
+    print(f"[Auto Koda] No linked template material found for '{koda_group_name}'")
     return None
 
 
@@ -263,11 +274,118 @@ def process_object(obj):
                 f"in slot {slot_index}"
             )
 
+def find_group_node(node_tree, exact_name=None, suffix=None):
+    for node in node_tree.nodes:
+        if node.type == 'GROUP' and node.node_tree:
+            name = node.node_tree.name
+            if exact_name and name == exact_name:
+                return node
+            if suffix and name.endswith(suffix):
+                return node
+    return None
 
+def get_group_output_node(group_tree):
+    for node in group_tree.nodes:
+        if node.type == 'GROUP_OUTPUT':
+            return node
+    return None
+    
+def sync_master_inputs_to_override(master_node, override_tree):
+    override_output = get_group_output_node(override_tree)
+    if not override_output:
+        return 0
+
+    copied = 0
+    for master_input in master_node.inputs:
+        if not isinstance(master_input, Allowed_Socket_Types):
+            continue
+        override_input = override_output.inputs.get(master_input.name)
+        if not override_input:
+            continue
+        if type(master_input) is not type(override_input):
+            continue
+        try:
+            override_input.default_value = master_input.default_value
+            copied += 1
+            print(f"[COPY] {master_input.name} = {master_input.default_value}")
+        except Exception:
+            print(f"[SKIP] {master_input.name} (non-writable)")
+
+    return copied
+    
+def link_override_to_master(material, master_node, override_node):
+    if not material.use_nodes:
+        print(f"[ERROR] Material '{material.name}' has no node tree.")
+        return 0
+    
+    nt = material.node_tree
+    linked_count = 0
+
+    for master_input in master_node.inputs:
+        override_output = override_node.outputs.get(master_input.name)
+        if override_output:
+            try:
+                nt.links.new(override_output, master_input)
+                print(f"[LINK] {master_input.name}")
+                linked_count += 1
+            except RuntimeError:
+                print(f"[FAIL LINK] {master_input.name} - incompatible socket type")
+
+    return linked_count
+
+def run_override_sync(do_sync_values=True, do_link_override=False):
+    obj = bpy.context.object
+    if not obj:
+        print("❌ No active object selected")
+        return
+
+    print(f"▶ Processing object: {obj.name}")
+
+    total_copied = 0
+    total_links = 0
+
+    for slot in obj.material_slots:
+        mat = slot.material
+        if not mat or not mat.use_nodes:
+            continue
+        nt = mat.node_tree
+
+        for shader in Shader_Pairs:
+            master_node = find_group_node(nt, exact_name=shader["master_name"])
+            override_node = find_group_node(nt, suffix=shader["override_suffix"])
+
+            if not master_node or not override_node:
+                continue
+
+            print(f"\n● Material: {mat.name}")
+            print(f"  Master:   {master_node.node_tree.name}")
+            print(f"  Override: {override_node.node_tree.name}")
+
+            if do_sync_values:
+                copied = sync_master_inputs_to_override(master_node, override_node.node_tree)
+                total_copied += copied
+                print(f"  → {copied} value(s) copied")
+
+            if do_link_override:
+                links = link_override_to_master(mat, master_node, override_node)
+                total_links += links
+                print(f"  → {links} link(s) created")
+
+    print("\n✔ Done")
+    if do_sync_values:
+        print(f"✔ Total values copied: {total_copied}")
+    if do_link_override:
+        print(f"✔ Total links created: {total_links}")
+
+
+# ======================================================
+# ===================== Operators ======================
+# ======================================================
 class Auto_Koda_Selected(bpy.types.Operator):
     bl_idname = "autokoda.convert_selected"
     bl_label = "Auto Koda"
     bl_description = "Convert the shader of the selected object to a Koda shader"
+    bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         shadersBlend = get_shaders_blend_path()
@@ -280,14 +398,85 @@ class Auto_Koda_Selected(bpy.types.Operator):
                 process_object(obj)
 
         return {'FINISHED'}
+        
+        
+class Auto_Koda_Crunch_Selected(bpy.types.Operator):
+    bl_idname = "autokoda.crunch_selected"
+    bl_label = "Auto Crunch"
+    bl_description = "Run Auto Crunch (Selected)"
+    bl_options = {'REGISTER', 'UNDO'}
 
+    def execute(self, context):
+        shadersBlend = get_shaders_blend_path()
+        if not shadersBlend:
+            self.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
+            return {'CANCELLED'}
+        
+        for obj in bpy.context.selected_objects:
+            if obj.type == 'MESH':
+                bpy.ops.zgswtor.process_named_mats(use_selection_only=True, use_overwrite_bool=False, use_collect_colliders_bool=True)
+                bpy.ops.zgswtor.customize_swtor_shaders(use_selection_only=True)
+                process_object(obj)
+        
+        return {'FINISHED'}
 
-class Auto_Koda_Button(bpy.types.Panel):
-    bl_idname = "VIEW3D_PT_auto_koda"
-    bl_category = "Auto Koda"
-    bl_label = "Auto Koda"
+class Auto_Koda_OT_SyncOverride(bpy.types.Operator):
+    bl_idname = "autokoda.sync_override"
+    bl_label = "Sync Override"
+    bl_description = "Sync Shader Node Group settings to Material Override Group"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        run_override_sync(do_sync_values=True, do_link_override=False)
+        self.report({'INFO'}, "Sync Override executed")
+        return {'FINISHED'}
+
+class Auto_Koda_OT_LinkOverride(bpy.types.Operator):
+    bl_idname = "autokoda.link_override"
+    bl_label = "Link Override"
+    bl_description = "Link Shader Node Group settings to Material Override Group"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        run_override_sync(do_sync_values=False, do_link_override=True)
+        self.report({'INFO'}, "Link Override executed")
+        return {'FINISHED'}
+
+class Auto_Koda_OT_SyncLinkOverride(bpy.types.Operator):
+    bl_idname = "autokoda.sync_link_override"
+    bl_label = "Sync/Link Override"
+    bl_description = "Sync and Link Shader Node Group settings to Material Override Group"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        run_override_sync(do_sync_values=True, do_link_override=True)
+        self.report({'INFO'}, "Sync/Link Override executed")
+        return {'FINISHED'}
+
+# ======================================================
+# ======================= Panels =======================
+# ======================================================
+class Auto_Koda_PT_Process_Materials(bpy.types.Panel):
+    bl_label = "Process Materials"
+    bl_idname = "VIEW3D_PT_auto_koda_process"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
+    bl_category = "Auto Koda"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator(Auto_Koda_Selected.bl_idname,text="Auto Koda (Selected)",icon='RESTRICT_SELECT_OFF')
+        layout.operator(Auto_Koda_Crunch_Selected.bl_idname, text="Auto Crunch (Selected)", icon='MODIFIER')
+
+
+
+class Auto_Koda_PT_Settings(bpy.types.Panel):
+    bl_options = {'DEFAULT_CLOSED'}
+    bl_label = "AutoKoda Settings"
+    bl_idname = "VIEW3D_PT_auto_koda_settings"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Auto Koda"
 
     def draw(self, context):
         layout = self.layout
@@ -295,10 +484,14 @@ class Auto_Koda_Button(bpy.types.Panel):
 
         shaders_blend_loc = get_shaders_blend_path()
 
+        # Invalid or missing path
         if not shaders_blend_loc or ".blend" not in shaders_blend_loc:
             status_box.alert = True
             row = status_box.row()
-            row.label(text=f"Shaders.blend path not set or invalid: {shaders_blend_loc}", icon='ERROR')
+            row.label(
+                text=f"Shaders.blend path not set or invalid: {shaders_blend_loc}",
+                icon='ERROR'
+            )
             row = status_box.row()
             row.operator(
                 "preferences.addon_show",
@@ -306,6 +499,7 @@ class Auto_Koda_Button(bpy.types.Panel):
                 icon='FILE_FOLDER'
             ).module = __name__
 
+        # Default shaders
         elif shaders_blend_loc == config.DEFAULT_SHADERS:
             row = status_box.row()
             row.label(text="Using default Shaders.blend", icon='CHECKMARK')
@@ -316,6 +510,7 @@ class Auto_Koda_Button(bpy.types.Panel):
                 icon='FILE_FOLDER'
             ).module = __name__
 
+        # Custom shaders
         else:
             row = status_box.row()
             row.label(text="Using custom Shaders.blend", icon='CHECKMARK')
@@ -328,13 +523,28 @@ class Auto_Koda_Button(bpy.types.Panel):
                 icon='FILE_FOLDER'
             ).module = __name__
 
-        layout.row().operator(
-            Auto_Koda_Selected.bl_idname,
-            text="Auto Koda (Selected)",
-            icon='RESTRICT_SELECT_OFF'
-        )
 
+class Auto_Koda_PT_Material_Overrides(bpy.types.Panel):
+    bl_label = "Material Overrides"
+    bl_idname = "NODE_PT_auto_koda_material_overrides"
+    bl_space_type = 'NODE_EDITOR'
+    bl_region_type = 'UI'
+    bl_category = "Auto Koda"
 
+    @classmethod
+    def poll(cls, context):
+        space = context.space_data
+        return space and space.type == 'NODE_EDITOR' and space.tree_type == 'ShaderNodeTree'
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("autokoda.sync_override", text="Sync Override")
+        layout.operator("autokoda.link_override", text="Link Override")
+        layout.operator("autokoda.sync_link_override", text="Sync/Link Override")
+
+# ======================================================
+# ===================== Preferences ====================
+# ======================================================
 class Auto_Koda_Preferences(AddonPreferences):
     bl_idname = __name__
 
@@ -348,13 +558,41 @@ class Auto_Koda_Preferences(AddonPreferences):
         layout.label(text="Select your Shaders.blend file below")
         layout.prop(self, "shadersPath", text="Shaders.blend Path")
 
-
+# ======================================================
+# ==================== Registration ====================
+# ======================================================
 classes = [
+    Auto_Koda_PT_Material_Overrides,
     Auto_Koda_Selected,
-    Auto_Koda_Button,
-    Auto_Koda_Preferences
+    Auto_Koda_Crunch_Selected,
+    Auto_Koda_PT_Process_Materials,
+    Auto_Koda_PT_Settings,
+    Auto_Koda_Preferences,
+    Auto_Koda_OT_SyncOverride,
+    Auto_Koda_OT_LinkOverride,
+    Auto_Koda_OT_SyncLinkOverride
 ]
 
+Shader_Pairs = [
+    {
+        "master_name": "CaptnKoda SWTOR - SkinB Shader",
+        "override_suffix": "Skin Override"
+    },
+    {
+        "master_name": "CaptnKoda SWTOR - Garment Shader",
+        "override_suffix": "Garment Override"
+    },
+    # Add more master/override pairs here
+]
+
+Allowed_Socket_Types = (
+    bpy.types.NodeSocketFloat,
+    bpy.types.NodeSocketFloatFactor,
+    bpy.types.NodeSocketInt,
+    bpy.types.NodeSocketBool,
+    bpy.types.NodeSocketVector,
+    bpy.types.NodeSocketColor,
+)
 
 def register():
     for cls in classes:
