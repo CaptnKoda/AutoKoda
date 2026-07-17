@@ -1,4 +1,6 @@
 import os
+import bpy # type: ignore
+
 addon_dir = os.path.dirname(__file__)
 
 DEFAULT_SHADERS = os.path.join(addon_dir, "res", "Shaders.blend")
@@ -32,3 +34,24 @@ HERO_GRAVITAS_TEX_NAMES = { #Key is HeroGravitas image tex node name, value is K
    "FacepaintMap"       : "FacepaintMap",
 
 }
+
+Shader_Pairs = [
+    {
+        "master_name": "CaptnKoda SWTOR - SkinB Shader",
+        "override_suffix": "Skin Override"
+    },
+    {
+        "master_name": "CaptnKoda SWTOR - Garment Shader",
+        "override_suffix": "Garment Override"
+    },
+    # Add more master/override pairs here
+]
+
+Allowed_Socket_Types = (
+    bpy.types.NodeSocketFloat,
+    bpy.types.NodeSocketFloatFactor,
+    bpy.types.NodeSocketInt,
+    bpy.types.NodeSocketBool,
+    bpy.types.NodeSocketVector,
+    bpy.types.NodeSocketColor,
+)
