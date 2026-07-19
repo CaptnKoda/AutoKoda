@@ -98,3 +98,24 @@ class Auto_Koda_Preferences(AddonPreferences):
         layout = self.layout
         layout.label(text="Select your Shaders.blend file below")
         layout.prop(self, "shadersPath", text="Shaders.blend Path")
+
+class Auto_Koda_PT_Utilities(bpy.types.Panel):
+    bl_label = "Utilities"
+    bl_idname = "VIEW3D_PT_auto_koda_utilities"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Auto Koda"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator(
+            operators.Auto_Koda_OT_ToggleSubsurfViewport.bl_idname,
+            text="Toggle Subsurf Viewport",
+            icon='MOD_SUBSURF'
+        )
+        layout.separator()
+        layout.operator(
+            operators.Auto_Koda_OT_PrepareMeshes.bl_idname,
+            text="Mesh Preparation",
+            icon='MESH_DATA'
+        )

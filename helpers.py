@@ -2,6 +2,8 @@ import bpy # type: ignore
 from . import config
 from bpy.props import StringProperty # type: ignore
 from bpy.types import AddonPreferences # type: ignore
+import bmesh # type: ignore
+import math
 
 def get_shaders_blend_path():
     try:
@@ -217,8 +219,55 @@ def process_object(obj):
             and node.node_tree.name in config.HERO_GRAVITAS_NODE_NAMES.values()
         ]
 
+        # --- NEW: handle ShaderNodeHeroEngine materials ---
+# --- HeroEngine materials ---
         if not hero_nodes:
+            hero_engine_node = find_hero_engine_node(mat.node_tree)
+            if not hero_engine_node:
+                continue
+
+            key = config.HERO_ENGINE_DERIVED_TO_KEY.get(hero_engine_node.derived)
+            koda_shader_name = config.KODA_NODE_NAMES.get(key) if key else None
+
+            if not koda_shader_name:
+                print(f"[Auto Koda] No Koda mapping for derived='{hero_engine_node.derived}' on '{mat.name}'")
+                continue
+
+            new_mat = link_material_with_koda_group(koda_shader_name)
+            if not new_mat:
+                continue
+
+            koda_node = next(
+                (node for node in new_mat.node_tree.nodes
+                 if node.type == 'GROUP'
+                 and node.node_tree
+                 and node.node_tree.name == koda_shader_name),
+                None
+            )
+
+            transfer_hero_engine_properties(hero_engine_node, koda_node)
+            transfer_hero_engine_textures(hero_engine_node, new_mat.node_tree)
+
+            assign_linked_material(
+                obj,
+                new_mat,
+                target_slot_index=slot_index,
+                preserve_inputs=True
+            )
+
+            old_name = mat.name
+            mat.name = f"{old_name}_OLD"
+            new_mat.name = old_name
+
+            old_mat = bpy.data.materials.get(f"{old_name}_OLD")
+            remap_old_material_references(old_mat, new_mat)
+
+            print(
+                f"[Auto Koda] Replaced HeroEngine material '{old_name}' "
+                f"with Koda shader '{koda_shader_name}' in slot {slot_index}"
+            )
             continue
+        # --- END NEW ---
 
         for hero_node in hero_nodes:
             hero_key = next(
@@ -373,3 +422,155 @@ def run_override_sync(do_sync_values=True, do_link_override=False):
         print(f"✔ Total values copied: {total_copied}")
     if do_link_override:
         print(f"✔ Total links created: {total_links}")
+
+def find_hero_engine_node(node_tree):
+    """Locate a ShaderNodeHeroEngine node, if present."""
+    for node in node_tree.nodes:
+        if node.bl_idname == config.HERO_ENGINE_NODE_TYPE:
+            return node
+    return None
+
+
+def transfer_hero_engine_textures(hero_node, target_tree):
+    """Same behaviour as transfer_textures(), but reads images directly off
+    the HeroEngine node's custom pointer properties instead of source
+    TEX_IMAGE nodes."""
+    target_images = {
+        node.name: node
+        for node in target_tree.nodes
+        if node.type == 'TEX_IMAGE'
+    }
+
+    for hero_field, koda_node_name in config.HERO_ENGINE_TEX_FIELDS.items():
+        image = getattr(hero_node, hero_field, None)
+        if not image:
+            continue
+
+        target_node = target_images.get(koda_node_name)
+        if not target_node:
+            continue
+
+        try:
+            target_node.image = image
+        except Exception as e:
+            print(f"[Auto Koda] Failed to transfer '{hero_field}' -> '{koda_node_name}': {e}")
+
+def toggle_subsurf_viewport_display(objects):
+    """Toggle viewport visibility of all Subdivision Surface modifiers on the
+    given objects. If any modifier is currently shown in viewport, all are
+    turned off; otherwise all are turned on. This keeps the toggle consistent
+    across a mixed selection rather than flipping each independently."""
+    subsurf_mods = [
+        mod
+        for obj in objects
+        if obj.type == 'MESH'
+        for mod in obj.modifiers
+        if mod.type == 'SUBSURF'
+    ]
+
+    if not subsurf_mods:
+        print("[Auto Koda] No Subdivision Surface modifiers found on selected objects.")
+        return 0
+
+    any_visible = any(mod.show_viewport for mod in subsurf_mods)
+    new_state = not any_visible
+
+    for mod in subsurf_mods:
+        mod.show_viewport = new_state
+
+    print(f"[Auto Koda] Set {len(subsurf_mods)} Subdivision Surface modifier(s) viewport display to {new_state}")
+    return len(subsurf_mods)
+
+def prepare_meshes(objects):
+    """For each selected mesh object: merge vertices by distance, convert
+    triangles to quads (comparing UVs, colour attributes, seams, sharps and
+    materials), clear custom split normals data, and enable Shade Auto Smooth."""
+    processed = 0
+
+    for obj in objects:
+        if obj.type != 'MESH':
+            continue
+
+        mesh = obj.data
+
+        # --- Clear custom split normals data ---
+        try:
+            with bpy.context.temp_override(object=obj, active_object=obj):
+                bpy.ops.mesh.customdata_custom_splitnormals_clear()
+        except RuntimeError as e:
+            print(f"[Auto Koda] Failed to clear custom normals on '{obj.name}': {e}")
+
+        # --- Merge by distance + Tris to Quads ---
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
+
+        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.00001)
+
+        bmesh.ops.join_triangles(
+            bm,
+            faces=bm.faces,
+            cmp_uvs=True,
+            cmp_vcols=True,
+            cmp_seam=True,
+            cmp_sharp=True,
+            cmp_materials=True,
+            angle_face_threshold=math.radians(40.0),
+            angle_shape_threshold=math.radians(40.0),
+        )
+
+        bm.to_mesh(mesh)
+        bm.free()
+        mesh.update()
+
+        # --- Shade Auto Smooth ---
+        try:
+            with bpy.context.temp_override(object=obj, active_object=obj, selected_editable_objects=[obj]):
+                if hasattr(bpy.ops.object, "shade_auto_smooth"):
+                    # Blender 4.1+ : adds a "Smooth by Angle" modifier
+                    bpy.ops.object.shade_auto_smooth()
+                else:
+                    # Blender <= 4.0 : legacy mesh-level auto smooth
+                    bpy.ops.object.shade_smooth(use_auto_smooth=True)
+        except RuntimeError as e:
+            print(f"[Auto Koda] Failed to enable auto smooth on '{obj.name}': {e}")
+
+        processed += 1
+        print(f"[Auto Koda] Prepared mesh on '{obj.name}'")
+
+    return processed
+
+def transfer_hero_engine_properties(hero_node, koda_node):
+    """Copies HeroEngine's custom scalar/color properties onto matching
+    input sockets of a Koda group node, using HERO_ENGINE_PROP_TO_KODA_INPUT."""
+    if not koda_node:
+        return 0
+
+    koda_inputs = {inp.name: inp for inp in koda_node.inputs}
+    copied = 0
+
+    for hero_prop, koda_input_name in config.HERO_ENGINE_PROP_TO_KODA_INPUT.items():
+        if not hasattr(hero_node, hero_prop):
+            continue
+
+        koda_input = koda_inputs.get(koda_input_name)
+        if not koda_input or not hasattr(koda_input, "default_value"):
+            continue
+
+        val = getattr(hero_node, hero_prop)
+
+        try:
+            if isinstance(val, (list, tuple)) and hasattr(koda_input.default_value, "__len__"):
+                val = list(val)
+                target_len = len(koda_input.default_value)
+                while len(val) < target_len:
+                    val.append(1.0)
+                val = val[:target_len]
+            elif isinstance(koda_input.default_value, float) and isinstance(val, (list, tuple)):
+                val = float(val[0])
+
+            koda_input.default_value = val
+            copied += 1
+        except Exception as e:
+            print(f"[Auto Koda] Failed to copy '{hero_prop}' -> '{koda_input_name}': {e}")
+
+    return copied
