@@ -19,6 +19,7 @@ classes = [
 
 def register():
     for cls in classes:
+        print('this is the new vers')
         bpy.utils.register_class(cls)
 
 
