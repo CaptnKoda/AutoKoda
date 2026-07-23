@@ -3,7 +3,7 @@ schema_version = "1.0.0"
 # Example of manifest file for a Blender extension
 # Change the values according to your extension
 id = "autokoda"
-version = "2.2.0"
+version = "3.0.3"
 name = "AutoKoda"
 tagline = "swags on ur swag till u SWAG"
 maintainer = "Koda, Crunch"
