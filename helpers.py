@@ -11,3 +11,6 @@ from .hero_engine import find_hero_engine_node, transfer_hero_engine_textures, t
 from .conversion import process_object
 from .overrides import sync_master_inputs_to_override, link_override_to_master, run_override_sync
 from .mesh_utils import toggle_subsurf_viewport_display, prepare_meshes
+from .prefs import get_shaders_blend_path, get_resources_folder_path
+from .garment_hue import list_garment_hue_files, refresh_garment_hue_collection
+from .garment_hue_xml import parse_garment_hue_file, apply_palette_to_koda_node, apply_garment_hue_to_objects

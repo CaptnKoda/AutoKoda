@@ -109,3 +109,75 @@ class Auto_Koda_OT_PrepareMeshes(bpy.types.Operator):
         count = helpers.prepare_meshes(objects)
         self.report({'INFO'}, f"Prepared {count} mesh(es)")
         return {'FINISHED'}
+
+class Auto_Koda_OT_GarmentHuePrimary(bpy.types.Operator):
+    bl_idname = "autokoda.garment_hue_primary"
+    bl_label = "Primary"
+    bl_description = "Apply the selected garment hue file to Palette 1 on selected objects' Koda materials"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        from . import garment_hue_xml
+
+        filename = context.scene.auto_koda_garment_hue_selection
+        if not filename:
+            self.report({'WARNING'}, "No garment hue file selected")
+            return {'CANCELLED'}
+
+        objects = [o for o in context.selected_objects if o.type == 'MESH']
+        if not objects:
+            self.report({'WARNING'}, "No mesh objects selected")
+            return {'CANCELLED'}
+
+        files_applied, nodes_updated = garment_hue_xml.apply_garment_hue_to_objects(
+            objects, filename, slot=1
+        )
+
+        if not files_applied:
+            self.report({'ERROR'}, f"Could not read '{filename}' - check console")
+            return {'CANCELLED'}
+
+        self.report({'INFO'}, f"Applied '{filename}' (Primary) to {nodes_updated} node(s)")
+        return {'FINISHED'}
+
+
+class Auto_Koda_OT_GarmentHueSecondary(bpy.types.Operator):
+    bl_idname = "autokoda.garment_hue_secondary"
+    bl_label = "Secondary"
+    bl_description = "Apply the selected garment hue file to Palette 2 on selected objects' Koda materials"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        from . import garment_hue_xml
+
+        filename = context.scene.auto_koda_garment_hue_selection
+        if not filename:
+            self.report({'WARNING'}, "No garment hue file selected")
+            return {'CANCELLED'}
+
+        objects = [o for o in context.selected_objects if o.type == 'MESH']
+        if not objects:
+            self.report({'WARNING'}, "No mesh objects selected")
+            return {'CANCELLED'}
+
+        files_applied, nodes_updated = garment_hue_xml.apply_garment_hue_to_objects(
+            objects, filename, slot=2
+        )
+
+        if not files_applied:
+            self.report({'ERROR'}, f"Could not read '{filename}' - check console")
+            return {'CANCELLED'}
+
+        self.report({'INFO'}, f"Applied '{filename}' (Secondary) to {nodes_updated} node(s)")
+        return {'FINISHED'}
+
+class Auto_Koda_OT_RefreshGarmentHueList(bpy.types.Operator):
+    bl_idname = "autokoda.refresh_garment_hue_list"
+    bl_label = "Refresh Garment Hue List"
+    bl_description = "Rescan the garmenthue folder for files"
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context):
+        from . import garment_hue
+        garment_hue.refresh_garment_hue_collection(context.scene)
+        return {'FINISHED'}

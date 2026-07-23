@@ -4,6 +4,7 @@ import bpy # type: ignore
 addon_dir = os.path.dirname(__file__)
 
 DEFAULT_SHADERS = os.path.join(addon_dir, "res", "Shaders.blend")
+GARMENT_HUE_SUBPATH = os.path.join("art", "dynamic", "garmenthue")
 
 KODA_NODE_NAMES = {
     "EYE"       : "CaptnKoda SWTOR - Eye Shader",
