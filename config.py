@@ -12,6 +12,7 @@ KODA_NODE_NAMES = {
     "HAIRC"     : "CaptnKoda SWTOR - HairC Shader",
     "SKINB"     : "CaptnKoda SWTOR - SkinB Shader",
     "UBER"      : "CaptnKoda SWTOR - Uber Shader",
+    "UBERHUEABLE": "CaptnKoda SWTOR - UberHueable Shader",
     #"ANIMATEDUV": "CaptnKodaAndC3PO SWTOR - AnimatedUV Shader"
 }
 
@@ -45,6 +46,7 @@ HERO_ENGINE_DERIVED_TO_KEY = {
     "HAIRC"    : "HAIRC",
     "EYE"     : "EYE",
     "GARMENT" : "GARMENT",
+    "UBERHUEABLE" : "UBERHUEABLE"
 }
 
 # Maps HeroEngine's custom image-pointer properties -> Koda Image Texture node name
