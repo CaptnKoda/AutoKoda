@@ -32,13 +32,30 @@ class Auto_Koda_Crunch_Selected(bpy.types.Operator):
         if not shadersBlend:
             self.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
             return {'CANCELLED'}
-        
-        for obj in bpy.context.selected_objects:
-            if obj.type == 'MESH':
-                bpy.ops.zgswtor.process_named_mats(use_selection_only=True, use_overwrite_bool=False, use_collect_colliders_bool=True)
-                bpy.ops.zgswtor.customize_swtor_shaders(use_selection_only=True)
-                helpers.process_object(obj)
-        
+
+        objects = [o for o in bpy.context.selected_objects if o.type == 'MESH']
+        if not objects:
+            self.report({'WARNING'}, "No mesh objects selected")
+            return {'CANCELLED'}
+
+        built, errors = helpers.build_named_materials_for_objects(objects)
+        for err in errors:
+            print(f"[Auto Koda] {err}")
+
+        for obj in objects:
+            helpers.process_object(obj)
+
+        if errors:
+            self.report(
+                {'WARNING'},
+                f"Built {built} native material(s); {len(errors)} error(s) - see console"
+            )
+        else:
+            self.report(
+                {'INFO'},
+                f"Built {built} native material(s), converted {len(objects)} object(s)"
+            )
+
         return {'FINISHED'}
 
 class Auto_Koda_OT_SyncOverride(bpy.types.Operator):
@@ -117,9 +134,9 @@ class Auto_Koda_OT_GarmentHuePrimary(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        from . import garment_hue_xml
+        from . import garment_hue, garment_hue_xml
 
-        filename = context.scene.auto_koda_garment_hue_selection
+        filename = garment_hue.get_selected_filename(context.scene)
         if not filename:
             self.report({'WARNING'}, "No garment hue file selected")
             return {'CANCELLED'}
@@ -148,9 +165,9 @@ class Auto_Koda_OT_GarmentHueSecondary(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        from . import garment_hue_xml
+        from . import garment_hue, garment_hue_xml
 
-        filename = context.scene.auto_koda_garment_hue_selection
+        filename = garment_hue.get_selected_filename(context.scene)
         if not filename:
             self.report({'WARNING'}, "No garment hue file selected")
             return {'CANCELLED'}
@@ -170,7 +187,7 @@ class Auto_Koda_OT_GarmentHueSecondary(bpy.types.Operator):
 
         self.report({'INFO'}, f"Applied '{filename}' (Secondary) to {nodes_updated} node(s)")
         return {'FINISHED'}
-
+    
 class Auto_Koda_OT_RefreshGarmentHueList(bpy.types.Operator):
     bl_idname = "autokoda.refresh_garment_hue_list"
     bl_label = "Refresh Garment Hue List"

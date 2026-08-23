@@ -1,38 +1,55 @@
 from . import config
 from .socket_utils import coerce_value_for_socket
 
-
+"""
 def find_hero_engine_node(node_tree):
-    """Locate a ShaderNodeHeroEngine node, if present."""
+    Locate a ShaderNodeHeroEngine node, if present.
     for node in node_tree.nodes:
         if node.bl_idname == config.HERO_ENGINE_NODE_TYPE:
             return node
     return None
+"""
 
+"""Locates Atroxa SWTOR node-group materials for conversion.py's pipeline."""
 
-def transfer_hero_engine_textures(hero_node, target_tree):
-    """Reads images directly off the HeroEngine node's custom pointer
-    properties and assigns them to matching Image Texture nodes by name."""
-    target_images = {
-        node.name: node
-        for node in target_tree.nodes
-        if node.type == 'TEX_IMAGE'
-    }
-
-    for hero_field, koda_node_name in config.HERO_ENGINE_TEX_FIELDS.items():
-        image = getattr(hero_node, hero_field, None)
-        if not image:
+def find_atroxa_group_node(node_tree):
+    """Locate the first Atroxa SWTOR group node in a material's tree, if
+    present, along with its derived-type key (matching KODA_NODE_NAMES).
+    Returns (node, key) or (None, None)."""
+    for node in node_tree.nodes:
+        if node.type != 'GROUP' or not node.node_tree:
             continue
+        key = next(
+            (k for k, name in config.ATROXA_NODE_NAMES.items() if name == node.node_tree.name),
+            None
+        )
+        if key:
+            return node, key
+    return None, None
+"""
+    def transfer_hero_engine_textures(hero_node, target_tree):
+        Reads images directly off the HeroEngine node's custom pointer
+        properties and assigns them to matching Image Texture nodes by name.
+        target_images = {
+            node.name: node
+            for node in target_tree.nodes
+            if node.type == 'TEX_IMAGE'
+        }
 
-        target_node = target_images.get(koda_node_name)
-        if not target_node:
-            continue
+        for hero_field, koda_node_name in config.HERO_ENGINE_TEX_FIELDS.items():
+            image = getattr(hero_node, hero_field, None)
+            if not image:
+                continue
 
-        try:
-            target_node.image = image
-        except Exception as e:
-            print(f"[Auto Koda] Failed to transfer '{hero_field}' -> '{koda_node_name}': {e}")
+            target_node = target_images.get(koda_node_name)
+            if not target_node:
+                continue
 
+            try:
+                target_node.image = image
+            except Exception as e:
+                print(f"[Auto Koda] Failed to transfer '{hero_field}' -> '{koda_node_name}': {e}")
+"""
 
 def transfer_hero_engine_properties(hero_node, koda_node):
     """Copies HeroEngine's custom scalar/color properties onto matching

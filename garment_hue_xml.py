@@ -145,3 +145,29 @@ def apply_garment_hue_to_objects(objects, filename, slot):
                         nodes_updated += 1
 
     return 1, nodes_updated
+
+def parse_representative_color(filepath):
+    """Parses <Representativecolor> from a garment hue XML file into an
+    RGBA tuple. Returns None if missing or unparseable."""
+    try:
+        tree = ET.parse(filepath)
+        root = tree.getroot()
+    except Exception as e:
+        print(f"[Auto Koda] Failed to parse '{filepath}' for representative color: {e}")
+        return None
+
+    el = root.find("Representativecolor")
+    if el is None or not el.text:
+        return None
+
+    try:
+        values = _parse_float_list(el.text)
+    except ValueError:
+        return None
+
+    if len(values) == 3:
+        values.append(1.0)
+    if len(values) < 3:
+        return None
+
+    return tuple(values[:4])

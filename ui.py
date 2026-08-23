@@ -87,7 +87,6 @@ class Auto_Koda_PT_Process_Materials(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        layout.operator(operators.Auto_Koda_Selected.bl_idname,text="Auto Koda (Selected)",icon='RESTRICT_SELECT_OFF')
         layout.operator(operators.Auto_Koda_Crunch_Selected.bl_idname, text="Auto Crunch (Selected)", icon='MODIFIER')
 
 class Auto_Koda_PT_Material_Overrides(bpy.types.Panel):
@@ -157,16 +156,55 @@ class Auto_Koda_PT_Utilities(bpy.types.Panel):
         layout.label(text="Garment Hue")
 
         row = layout.row(align=True)
-        row.prop_search(
-            context.scene, "auto_koda_garment_hue_selection",
-            context.scene, "auto_koda_garment_hue_files",
-            text="", icon='VIEWZOOM'
-        )
+        row.prop(context.scene, "auto_koda_garment_hue_filter", text="", icon='VIEWZOOM')
+        row.prop(context.scene, "auto_koda_garment_hue_sort_by_color", text="", icon='COLOR', toggle=True)
         row.operator(
             operators.Auto_Koda_OT_RefreshGarmentHueList.bl_idname,
             text="", icon='FILE_REFRESH'
         )
 
+        layout.template_list(
+            "AUTOKODA_UL_garment_hue", "",
+            context.scene, "auto_koda_garment_hue_files",
+            context.scene, "auto_koda_garment_hue_index",
+            rows=5
+        )
+
         row = layout.row(align=True)
         row.operator(operators.Auto_Koda_OT_GarmentHuePrimary.bl_idname, text="Primary")
         row.operator(operators.Auto_Koda_OT_GarmentHueSecondary.bl_idname, text="Secondary")
+
+class AUTOKODA_UL_garment_hue(bpy.types.UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        row = layout.row(align=True)
+        row.prop(item, "color", text="", icon_only=True)
+        row.label(text=item.name)
+
+    def filter_items(self, context, data, propname):
+        from .garment_hue import _color_sort_key
+
+        items = getattr(data, propname)
+        filter_text = getattr(data, "auto_koda_garment_hue_filter", "").lower()
+
+        if filter_text:
+            flt_flags = [
+                self.bitflag_filter_item if filter_text in item.name.lower() else 0
+                for item in items
+            ]
+        else:
+            flt_flags = [self.bitflag_filter_item] * len(items)
+
+        sort_by_color = getattr(data, "auto_koda_garment_hue_sort_by_color", False)
+
+        if sort_by_color:
+            keyed = sorted(
+                range(len(items)),
+                key=lambda i: _color_sort_key(items[i].color)
+            )
+            flt_neworder = [0] * len(items)
+            for new_pos, original_index in enumerate(keyed):
+                flt_neworder[original_index] = new_pos
+        else:
+            flt_neworder = list(range(len(items)))
+
+        return flt_flags, flt_neworder

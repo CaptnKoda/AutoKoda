@@ -16,50 +16,13 @@ KODA_NODE_NAMES = {
     #"ANIMATEDUV": "CaptnKodaAndC3PO SWTOR - AnimatedUV Shader"
 }
 
-HERO_GRAVITAS_NODE_NAMES = {
-    "EYE"       : "SWTOR - Eye Shader",
-    "GARMENT"   : "SWTOR - Garment Shader",
-    "HAIRC"     : "SWTOR - HairC Shader",
-    "SKINB"     : "SWTOR - SkinB Shader",
-    "UBER"      : "SWTOR - Uber Shader",
-    #"ANIMATEDUV": "SWTOR - AnimatedUV Shader"
-}
-
-HERO_GRAVITAS_TEX_NAMES = { #Key is HeroGravitas image tex node name, value is Koda image tex node name
-   "_d DiffuseMap"      : "DiffuseMap",
-   "_n RotationMap"     : "RotationMap1",
-   "_s GlossMap"        : "GlossMap",
-   "_h PaletteMap"      : "PaletteMap",
-   "_m PaletteMaskMap"  : "PaletteMaskMap",
-   "AgeMap"             : "AgeMap",
-   "ComplexionMap"      : "ComplexionMap",
-   "FacepaintMap"       : "FacepaintMap",
-}
-
-HERO_ENGINE_NODE_TYPE = "ShaderNodeHeroEngine"
-
-# Maps the HeroEngine node's `derived` enum value -> the same keys used in
-# KODA_NODE_NAMES / HERO_GRAVITAS_NODE_NAMES
-HERO_ENGINE_DERIVED_TO_KEY = {
-    "UBER"    : "UBER",
-    "SKINB"    : "SKINB",
-    "HAIRC"    : "HAIRC",
-    "EYE"     : "EYE",
-    "GARMENT" : "GARMENT",
-    "UBERHUEABLE" : "UBERHUEABLE"
-}
-
-# Maps HeroEngine's custom image-pointer properties -> Koda Image Texture node name
-# (values reused from your existing HERO_GRAVITAS_TEX_NAMES targets)
-HERO_ENGINE_TEX_FIELDS = {
-    "diffuseMap"     : "DiffuseMap",
-    "rotationMap"    : "RotationMap1",
-    "glossMap"       : "GlossMap",
-    "paletteMap"     : "PaletteMap",
-    "paletteMaskMap" : "PaletteMaskMap",
-    "ageMap"         : "AgeMap",
-    "complexionMap"  : "ComplexionMap",
-    "facepaintMap"   : "FacepaintMap",
+ATROXA_NODE_NAMES = {
+    "EYE"        : "Atroxa SWTOR - Eye Shader",
+    "GARMENT"    : "Atroxa SWTOR - Garment Shader",
+    "HAIRC"      : "Atroxa SWTOR - HairC Shader",
+    "SKINB"      : "Atroxa SWTOR - SkinB Shader",
+    "UBER"       : "Atroxa SWTOR - Uber Shader",
+    "UBERHUEABLE": "Atroxa SWTOR - UberHueable Shader",
 }
 
 # Maps HeroEngine's custom scalar/color properties -> input socket name on
