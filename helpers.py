@@ -6,7 +6,6 @@ from .material_io import (
     finalize_material_swap,
 )
 from .node_utils import find_group_node, get_group_output_node, find_koda_group_node
-from .hero_gravitas import transfer_textures, copy_node_inputs
 from .hero_engine import transfer_hero_engine_properties
 from .conversion import process_object
 from .overrides import sync_master_inputs_to_override, link_override_to_master, run_override_sync
