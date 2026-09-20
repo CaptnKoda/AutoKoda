@@ -13,7 +13,7 @@ KODA_NODE_NAMES = {
     "SKINB"     : "CaptnKoda SWTOR - SkinB Shader",
     "UBER"      : "CaptnKoda SWTOR - Uber Shader",
     "UBERHUEABLE": "CaptnKoda SWTOR - UberHueable Shader",
-    #"ANIMATEDUV": "CaptnKodaAndC3PO SWTOR - AnimatedUV Shader"
+    "ANIMATEDUV": "CaptnKodaAndC3PO SWTOR - AnimatedUV Shader"
 }
 
 ATROXA_NODE_NAMES = {
@@ -23,6 +23,7 @@ ATROXA_NODE_NAMES = {
     "SKINB"      : "Atroxa SWTOR - SkinB Shader",
     "UBER"       : "Atroxa SWTOR - Uber Shader",
     "UBERHUEABLE": "Atroxa SWTOR - UberHueable Shader",
+    "ANIMATEDUV": "Atroxa SWTOR - AnimatedUV Shader"
 }
 
 # Maps HeroEngine's custom scalar/color properties -> input socket name on
@@ -44,7 +45,6 @@ HERO_ENGINE_PROP_TO_KODA_INPUT = {
     "flush_tone"                  : "Flush Tone",
 }
 
-
 Shader_Pairs = [
     {
         "master_name": "CaptnKoda SWTOR - SkinB Shader",
@@ -65,3 +65,7 @@ Allowed_Socket_Types = (
     bpy.types.NodeSocketVector,
     bpy.types.NodeSocketColor,
 )
+
+# Folder names to prune entirely from the Animations panel's recursive
+# .jba folder scan (case-insensitive), wherever they appear in the tree.
+IGNORED_JBA_FOLDER_NAMES = {"placeable"}

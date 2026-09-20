@@ -78,6 +78,31 @@ class Auto_Koda_PT_Settings(bpy.types.Panel):
                 icon='FILE_FOLDER'
             ).module = __package__
 
+        anim_box = layout.box()
+        anim_root_path = helpers.get_anim_root_path()
+
+        if not anim_root_path:
+            anim_box.alert = True
+            row = anim_box.row()
+            row.label(text="Anim folder not set or invalid", icon='ERROR')
+            row = anim_box.row()
+            row.operator(
+                "preferences.addon_show",
+                text="Set Anim Folder",
+                icon='FILE_FOLDER'
+            ).module = __package__
+        else:
+            row = anim_box.row()
+            row.label(text="Anim folder configured", icon='CHECKMARK')
+            row = anim_box.row()
+            row.label(text=anim_root_path, icon='FILE_FOLDER')
+            row = anim_box.row()
+            row.operator(
+                "preferences.addon_show",
+                text="Change Anim Folder",
+                icon='FILE_FOLDER'
+            ).module = __package__
+
 class Auto_Koda_PT_Process_Materials(bpy.types.Panel):
     bl_label = "Process Materials"
     bl_idname = "VIEW3D_PT_auto_koda_process"
@@ -121,6 +146,12 @@ class Auto_Koda_Preferences(AddonPreferences):
         subtype='DIR_PATH'
     ) # type: ignore
 
+    animRootPath: StringProperty(
+        name="",
+        description="Root 'anim' folder to scan recursively for subfolders containing .jba files",
+        subtype='DIR_PATH'
+    ) # type: ignore
+
     def draw(self, context):
         layout = self.layout
         layout.label(text="Select your Shaders.blend file below")
@@ -130,6 +161,11 @@ class Auto_Koda_Preferences(AddonPreferences):
 
         layout.label(text="Select your TOR resources extraction folder below")
         layout.prop(self, "resourcesPath", text="Resources Folder")
+
+        layout.separator()
+
+        layout.label(text="Select your SWTOR 'anim' folder below")
+        layout.prop(self, "animRootPath", text="Anim Folder")
 
 class Auto_Koda_PT_Utilities(bpy.types.Panel):
     bl_label = "Utilities"
@@ -208,3 +244,47 @@ class AUTOKODA_UL_garment_hue(bpy.types.UIList):
             flt_neworder = list(range(len(items)))
 
         return flt_flags, flt_neworder
+
+class Auto_Koda_PT_Animations(bpy.types.Panel):
+    bl_label = "Animations"
+    bl_idname = "VIEW3D_PT_auto_koda_animations"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Auto Koda"
+
+    def draw(self, context):
+        layout = self.layout
+
+        if not helpers.get_anim_root_path():
+            row = layout.row()
+            row.alert = True
+            row.label(text="Set the Anim Folder in Add-on Preferences first", icon='ERROR')
+
+        layout.prop_search(
+            context.scene, "auto_koda_jba_folder_name",
+            context.scene, "auto_koda_jba_folders",
+            text="Animation Set"
+        )
+
+        row = layout.row(align=True)
+        row.label(text="")
+        row.operator(
+            operators.Auto_Koda_OT_RefreshJBAList.bl_idname,
+            text="", icon='FILE_REFRESH'
+        )
+
+        layout.template_list(
+            "AUTOKODA_UL_jba_animations", "",
+            context.scene, "auto_koda_jba_files",
+            context.scene, "auto_koda_jba_index",
+            rows=8
+        )
+
+        layout.operator(
+            operators.Auto_Koda_OT_ImportJBA.bl_idname,
+            text="Import JBA", icon='ARMATURE_DATA'
+        )
+
+class AUTOKODA_UL_jba_animations(bpy.types.UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        layout.label(text=item.name, icon='ANIM')

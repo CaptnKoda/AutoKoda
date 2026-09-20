@@ -1,6 +1,6 @@
 import bpy # type: ignore
 from . import helpers
-from bpy.props import StringProperty # type: ignore
+from bpy.props import StringProperty, BoolProperty, FloatProperty  # type: ignore
 from bpy.types import AddonPreferences # type: ignore
 
 class Auto_Koda_Selected(bpy.types.Operator):
@@ -198,3 +198,70 @@ class Auto_Koda_OT_RefreshGarmentHueList(bpy.types.Operator):
         from . import garment_hue
         garment_hue.refresh_garment_hue_collection(context.scene)
         return {'FINISHED'}
+
+class Auto_Koda_OT_RefreshJBAList(bpy.types.Operator):
+    bl_idname = "autokoda.refresh_jba_list"
+    bl_label = "Refresh Animation List"
+    bl_description = "Rescan the anim folder tree for subfolders and .jba files"
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context):
+        from . import animations
+        animations.refresh_jba_folder_list(context.scene)
+        animations.refresh_jba_collection(context.scene)
+        return {'FINISHED'}
+
+class Auto_Koda_OT_ImportJBA(bpy.types.Operator):
+    bl_idname = "autokoda.import_jba"
+    bl_label = "Import JBA"
+    bl_description = "Import the selected .jba animation onto the active armature"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    # Same properties import_jba.py's build() reads off the operator it's
+    # given -- see jba_bridge.py's docstring for why these live here
+    # rather than being pulled from swtor_io_tools' own preferences.
+    ignore_facial_bones: BoolProperty(
+        name="Ignore Facial Transl.",
+        description="Ignores the data in the facial bones' translation keyframes and only uses their rotation keyframes",
+        default=True,
+    )  # type: ignore
+    delete_180: BoolProperty(
+        name="Delete 180° Rotation",
+        description="Deletes Bip01's rotation keyframes and zeroes its rotation, instead of the character turning 180° to face away from camera",
+        default=False,
+    )  # type: ignore
+    scale_animation: BoolProperty(
+        name="Scale Animation",
+        description="Scales the bones' translation data by Scale Factor, when the armature has no import_scale custom property to derive it from automatically",
+        default=False,
+    )  # type: ignore
+    scale_factor: FloatProperty(
+        name="Scale Factor",
+        default=1.0,
+        soft_min=0.1,
+        soft_max=2.0,
+        precision=2,
+    )  # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None and context.active_object.type == 'ARMATURE'
+
+    def execute(self, context):
+        from . import animations, jba_bridge
+
+        filename = animations.get_selected_jba_filename(context.scene)
+        if not filename:
+            self.report({'WARNING'}, "No animation selected")
+            return {'CANCELLED'}
+
+        filepath = animations.get_jba_filepath(context.scene, filename)
+        if not filepath:
+            self.report({'ERROR'}, "Selected .jba file no longer exists - try Refresh")
+            return {'CANCELLED'}
+
+        if jba_bridge.import_jba_onto_active_armature(self, context, filepath):
+            self.report({'INFO'}, f"Imported '{filename}' onto '{context.active_object.name}'")
+            return {'FINISHED'}
+
+        return {'CANCELLED'}

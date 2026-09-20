@@ -1,5 +1,5 @@
 import bpy # type: ignore
-from . import operators, ui, garment_hue
+from . import operators, ui, garment_hue, animations
 
 classes = [
     ui.Auto_Koda_PT_Process_Materials,
@@ -7,7 +7,9 @@ classes = [
     ui.Auto_Koda_PT_Material_Overrides,
     ui.Auto_Koda_Preferences,
     ui.Auto_Koda_PT_Utilities,
+    ui.Auto_Koda_PT_Animations,
     ui.AUTOKODA_UL_garment_hue,
+    ui.AUTOKODA_UL_jba_animations,
 
     operators.Auto_Koda_Selected,
     operators.Auto_Koda_Crunch_Selected,
@@ -19,8 +21,12 @@ classes = [
     operators.Auto_Koda_OT_GarmentHuePrimary,
     operators.Auto_Koda_OT_GarmentHueSecondary,
     operators.Auto_Koda_OT_RefreshGarmentHueList,
+    operators.Auto_Koda_OT_RefreshJBAList,
+    operators.Auto_Koda_OT_ImportJBA,
 
     garment_hue.Auto_Koda_GarmentHueItem,
+    animations.Auto_Koda_JBAItem,
+    animations.Auto_Koda_JBAFolderItem,
 ]
 
 
@@ -32,11 +38,22 @@ def _refresh_garment_hue_for_current_scene():
     return None  # for timer: don't repeat
 
 
+def _refresh_jba_list_for_current_scene():
+    try:
+        animations.refresh_jba_folder_list(bpy.context.scene)
+        animations.refresh_jba_collection(bpy.context.scene)
+    except Exception as e:
+        print(f"[Auto Koda] JBA animation list refresh skipped: {e}")
+    return None  # for timer: don't repeat
+
+
 def _on_load_post(dummy):
     """Runs every time a .blend file finishes loading (including startup
-    file, opening a saved file, or File > New), so the garment hue list -
-    and any stale colors baked into an older save - gets rebuilt fresh."""
+    file, opening a saved file, or File > New), so the garment hue list
+    and JBA animation list - and any stale data baked into an older save
+    - get rebuilt fresh."""
     bpy.app.timers.register(_refresh_garment_hue_for_current_scene, first_interval=0.1)
+    bpy.app.timers.register(_refresh_jba_list_for_current_scene, first_interval=0.1)
 
 
 def register():
@@ -59,16 +76,37 @@ def register():
         default=False,
     )
 
+    bpy.types.Scene.auto_koda_jba_folders = bpy.props.CollectionProperty(
+        type=animations.Auto_Koda_JBAFolderItem
+    )
+    bpy.types.Scene.auto_koda_jba_folder_name = bpy.props.StringProperty(
+        name="Animation Set",
+        description="Type to search subfolders (within the Anim Folder) containing .jba files",
+        update=animations.on_jba_folder_name_changed,
+    )
+    bpy.types.Scene.auto_koda_jba_files = bpy.props.CollectionProperty(
+        type=animations.Auto_Koda_JBAItem
+    )
+    bpy.types.Scene.auto_koda_jba_index = bpy.props.IntProperty(
+        default=-1
+    )
+
     bpy.app.handlers.load_post.append(_on_load_post)
 
     # Cover the case where the addon is enabled live, mid-session, with a
     # file already open (load_post won't fire again for an already-open file)
     bpy.app.timers.register(_refresh_garment_hue_for_current_scene, first_interval=0.1)
+    bpy.app.timers.register(_refresh_jba_list_for_current_scene, first_interval=0.1)
 
 
 def unregister():
     if _on_load_post in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_on_load_post)
+
+    del bpy.types.Scene.auto_koda_jba_index
+    del bpy.types.Scene.auto_koda_jba_files
+    del bpy.types.Scene.auto_koda_jba_folder_name
+    del bpy.types.Scene.auto_koda_jba_folders
 
     del bpy.types.Scene.auto_koda_garment_hue_sort_by_color
     del bpy.types.Scene.auto_koda_garment_hue_index

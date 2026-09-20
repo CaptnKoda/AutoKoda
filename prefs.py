@@ -65,3 +65,24 @@ def get_resources_folder_path():
         return None
 
     return path
+
+def get_anim_root_path():
+    """Returns the configured 'anim' root folder for the Animations
+    panel, or None if unset/invalid."""
+    try:
+        prefs = bpy.context.preferences.addons[__package__].preferences
+        path = getattr(prefs, "animRootPath", "").strip()
+    except Exception as e:
+        print(f"[Auto Koda] Could not retrieve anim root path from preferences: {e}")
+        return None
+
+    if not path:
+        return None
+
+    path = bpy.path.abspath(path)
+
+    if not os.path.isdir(path):
+        print(f"[Auto Koda] Configured anim root folder does not exist: {path}")
+        return None
+
+    return path
