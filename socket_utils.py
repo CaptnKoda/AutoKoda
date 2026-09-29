@@ -36,3 +36,24 @@ def copy_socket_to_socket(source_socket, target_socket):
     if not hasattr(source_socket, "default_value"):
         return False
     return coerce_value_for_socket(source_socket.default_value, target_socket)
+
+def resolve_source_socket(socket, max_depth=32):
+    """Follow a linked input back through Reroute nodes to the real source socket."""
+    if not socket.is_linked:
+        return None
+    src = socket.links[0].from_socket
+    for _ in range(max_depth):
+        if src.node.type != 'REROUTE':
+            return src
+        inp = src.node.inputs[0]
+        if not inp.is_linked:
+            return None
+        src = inp.links[0].from_socket
+    return None
+
+
+def get_source_image(socket):
+    src = resolve_source_socket(socket)
+    if src and src.node.type == 'TEX_IMAGE':
+        return src.node.image
+    return None

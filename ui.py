@@ -5,7 +5,7 @@ from bpy.types import AddonPreferences # type: ignore
 
 class Auto_Koda_PT_Settings(bpy.types.Panel):
     bl_options = {'DEFAULT_CLOSED'}
-    bl_label = "AutoKoda Settings II"
+    bl_label = "Settings"
     bl_idname = "VIEW3D_PT_auto_koda_settings"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
