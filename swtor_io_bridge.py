@@ -15,9 +15,8 @@ update renames/moves it, this bridge is the only place that needs
 updating.
 """
 
-import bpy  # type: ignore
-
-EXTERNAL_SWTOR_IO_ADDON_MODULE = "swtor_io_tools"
+from .config import EXTERNAL_SWTOR_IO_ADDON_MODULE
+from .prefs import is_addon_enabled
 
 
 def build_named_materials_for_objects(objects):
@@ -37,7 +36,7 @@ def build_named_materials_for_objects(objects):
     individual materials are collected into error_messages instead, so
     one bad material doesn't stop the rest of the batch.
     """
-    if EXTERNAL_SWTOR_IO_ADDON_MODULE not in bpy.context.preferences.addons:
+    if not is_addon_enabled(EXTERNAL_SWTOR_IO_ADDON_MODULE):
         return 0, [f"'{EXTERNAL_SWTOR_IO_ADDON_MODULE}' addon is not installed/enabled"]
 
     try:
@@ -79,3 +78,4 @@ def build_named_materials_for_objects(objects):
             # "skipped" (already built / skip-listed name): nothing to log
 
     return built, errors
+# Example: build_named_materials_for_objects([body, head]) -> (5, ["'mat_cape': missing diffuse texture"])

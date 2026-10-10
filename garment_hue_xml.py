@@ -4,11 +4,25 @@ Koda group node inputs (palette1_* for Primary, palette2_* for Secondary)."""
 import os
 import xml.etree.ElementTree as ET
 from . import config
+from .node_utils import is_koda_group_node
+from .socket_utils import coerce_value_for_socket
 
 
 def _parse_float_list(text):
     """Parses a comma-separated string of floats, e.g. '0.611765, 0.921569, 1, 1'."""
     return [float(v.strip()) for v in text.split(",") if v.strip() != ""]
+# Example: _parse_float_list("0.611765, 0.921569, 1, 1") -> [0.611765, 0.921569, 1.0, 1.0]
+
+
+def _load_xml_root(filepath, purpose):
+    """Parses an XML file and returns its root element, or None (logged)
+    if it can't be read."""
+    try:
+        return ET.parse(filepath).getroot()
+    except Exception as e:
+        print(f"[Auto Koda] Failed to parse '{filepath}' for {purpose}: {e}")
+        return None
+# Example: _load_xml_root(".../garmenthue_red_light.xml", "garment hue") -> <Element 'GarmentHue'>
 
 
 def parse_garment_hue_file(filepath):
@@ -25,11 +39,8 @@ def parse_garment_hue_file(filepath):
         }
     Returns None on parse failure.
     """
-    try:
-        tree = ET.parse(filepath)
-        root = tree.getroot()
-    except Exception as e:
-        print(f"[Auto Koda] Failed to parse garment hue file '{filepath}': {e}")
+    root = _load_xml_root(filepath, "garment hue values")
+    if root is None:
         return None
 
     def get_text(tag):
@@ -63,6 +74,7 @@ def parse_garment_hue_file(filepath):
                 print(f"[Auto Koda] Could not parse color for <{tag}> in '{filepath}'")
 
     return values
+# Example: parse_garment_hue_file(".../garmenthue_red_light.xml") -> {"hue": 0.2802, "saturation": 0.58, "brightness": -0.08, "contrast": 0.45, "specular": [1.0, 0.91, 0.67, 1.0], "metallic_specular": [0.61, 0.92, 1.0, 1.0]}
 
 
 def apply_palette_to_koda_node(values, koda_node, slot):
@@ -73,8 +85,6 @@ def apply_palette_to_koda_node(values, koda_node, slot):
     (e.g. 'palette1_hue') in case the group's socket wasn't renamed."""
     if not koda_node or not values:
         return 0
-
-    from .socket_utils import coerce_value_for_socket
 
     koda_inputs = {inp.name: inp for inp in koda_node.inputs}
     copied = 0
@@ -101,20 +111,21 @@ def apply_palette_to_koda_node(values, koda_node, slot):
             print(f"[Auto Koda] Failed to apply '{hero_prop}' -> '{attempted_name}'")
 
     return copied
+# Example: apply_palette_to_koda_node(values, koda_node, slot=1) -> 6
 
 
 def apply_garment_hue_to_objects(objects, filename, slot):
     """For each selected mesh object, finds every Koda group node in its
     materials and applies the parsed palette file onto palette{slot}_*
     inputs. Returns (files_applied_count, nodes_updated_count)."""
-    from .prefs import get_resources_folder_path
+    from .garment_hue import get_garment_hue_folder
 
-    resources_path = get_resources_folder_path()
-    if not resources_path:
+    folder = get_garment_hue_folder()
+    if not folder:
         print("[Auto Koda] Resources folder not configured.")
         return 0, 0
 
-    filepath = os.path.join(resources_path, config.GARMENT_HUE_SUBPATH, filename)
+    filepath = os.path.join(folder, filename)
     if not os.path.isfile(filepath):
         print(f"[Auto Koda] Garment hue file not found: {filepath}")
         return 0, 0
@@ -135,25 +146,18 @@ def apply_garment_hue_to_objects(objects, filename, slot):
                 continue
 
             for node in mat.node_tree.nodes:
-                if (
-                    node.type == 'GROUP'
-                    and node.node_tree
-                    and node.node_tree.name in config.KODA_NODE_NAMES.values()
-                ):
-                    copied = apply_palette_to_koda_node(values, node, slot)
-                    if copied:
-                        nodes_updated += 1
+                if is_koda_group_node(node) and apply_palette_to_koda_node(values, node, slot):
+                    nodes_updated += 1
 
     return 1, nodes_updated
+# Example: apply_garment_hue_to_objects(objects, "garmenthue_red_light.xml", slot=2) -> (1, 4)
+
 
 def parse_representative_color(filepath):
     """Parses <Representativecolor> from a garment hue XML file into an
     RGBA tuple. Returns None if missing or unparseable."""
-    try:
-        tree = ET.parse(filepath)
-        root = tree.getroot()
-    except Exception as e:
-        print(f"[Auto Koda] Failed to parse '{filepath}' for representative color: {e}")
+    root = _load_xml_root(filepath, "representative color")
+    if root is None:
         return None
 
     el = root.find("Representativecolor")
@@ -171,3 +175,4 @@ def parse_representative_color(filepath):
         return None
 
     return tuple(values[:4])
+# Example: parse_representative_color(".../garmenthue_red_light.xml") -> (0.8, 0.12, 0.1, 1.0)

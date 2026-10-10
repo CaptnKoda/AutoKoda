@@ -23,6 +23,7 @@ import os
 import bpy  # type: ignore
 from . import config
 from .prefs import get_anim_root_path
+from .list_utils import list_files, rebuild_name_collection, active_item_name
 
 
 class Auto_Koda_JBAItem(bpy.types.PropertyGroup):
@@ -67,6 +68,7 @@ def list_jba_subfolders(root_path):
         return []
 
     return sorted(qualifying)
+# Example: list_jba_subfolders("/home/koda/SWTOR/resources/anim") -> [".", "humanoid/bfa", "humanoid/bma"]
 
 
 def refresh_jba_folder_list(scene):
@@ -79,28 +81,14 @@ def refresh_jba_folder_list(scene):
     root = get_anim_root_path()
     folders = list_jba_subfolders(root) if root else []
 
-    scene.auto_koda_jba_folders.clear()
-    for rel in folders:
-        item = scene.auto_koda_jba_folders.add()
-        item.name = rel
+    rebuild_name_collection(scene.auto_koda_jba_folders, folders)
 
 
 def list_jba_files(folder_path):
     """Lists .jba files directly inside `folder_path` (an absolute
     path -- typically the anim root joined with a selected subfolder)."""
-    if not folder_path or not os.path.isdir(folder_path):
-        return []
-
-    try:
-        files = sorted(
-            f for f in os.listdir(folder_path)
-            if f.lower().endswith(".jba") and os.path.isfile(os.path.join(folder_path, f))
-        )
-    except Exception as e:
-        print(f"[Auto Koda] Failed to list JBA folder '{folder_path}': {e}")
-        return []
-
-    return files
+    return list_files(folder_path, ".jba", label="JBA folder")
+# Example: list_jba_files("/home/koda/SWTOR/resources/anim/humanoid/bfa") -> ["idle.jba", "run_fwd.jba"]
 
 
 def get_selected_jba_folder_path(scene):
@@ -119,6 +107,7 @@ def get_selected_jba_folder_path(scene):
         return None
 
     return root if rel == "." else os.path.join(root, rel)
+# Example: get_selected_jba_folder_path(scene) -> "/home/koda/SWTOR/resources/anim/humanoid/bfa"
 
 
 def refresh_jba_collection(scene):
@@ -128,20 +117,20 @@ def refresh_jba_collection(scene):
     folder_path = get_selected_jba_folder_path(scene)
     files = list_jba_files(folder_path) if folder_path else []
 
-    scene.auto_koda_jba_files.clear()
-    for f in files:
-        item = scene.auto_koda_jba_files.add()
-        item.name = f
+    rebuild_name_collection(scene.auto_koda_jba_files, files)
+
+
+def refresh_jba_lists(scene):
+    """Rebuilds both the folder search list and the file list."""
+    refresh_jba_folder_list(scene)
+    refresh_jba_collection(scene)
 
 
 def get_selected_jba_filename(scene):
     """Returns the filename of the currently active JBA list item, or
     None if nothing is selected."""
-    idx = scene.auto_koda_jba_index
-    items = scene.auto_koda_jba_files
-    if 0 <= idx < len(items):
-        return items[idx].name
-    return None
+    return active_item_name(scene.auto_koda_jba_files, scene.auto_koda_jba_index)
+# Example: get_selected_jba_filename(scene) -> "run_fwd.jba"
 
 
 def get_jba_filepath(scene, filename):
@@ -158,6 +147,7 @@ def get_jba_filepath(scene, filename):
         print(f"[Auto Koda] JBA file not found: {filepath}")
         return None
     return filepath
+# Example: get_jba_filepath(scene, "run_fwd.jba") -> "/home/koda/SWTOR/resources/anim/humanoid/bfa/run_fwd.jba"
 
 
 def on_jba_folder_name_changed(self, context):

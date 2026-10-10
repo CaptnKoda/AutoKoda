@@ -1,24 +1,15 @@
+"""Locates Atroxa SWTOR node-group materials for conversion.py's pipeline."""
+
 from . import config
+from .node_utils import iter_group_nodes
 from .socket_utils import coerce_value_for_socket
 
-"""
-def find_hero_engine_node(node_tree):
-    Locate a ShaderNodeHeroEngine node, if present.
-    for node in node_tree.nodes:
-        if node.bl_idname == config.HERO_ENGINE_NODE_TYPE:
-            return node
-    return None
-"""
-
-"""Locates Atroxa SWTOR node-group materials for conversion.py's pipeline."""
 
 def find_atroxa_group_node(node_tree):
     """Locate the first Atroxa SWTOR group node in a material's tree, if
     present, along with its derived-type key (matching KODA_NODE_NAMES).
     Returns (node, key) or (None, None)."""
-    for node in node_tree.nodes:
-        if node.type != 'GROUP' or not node.node_tree:
-            continue
+    for node in iter_group_nodes(node_tree):
         key = next(
             (k for k, name in config.ATROXA_NODE_NAMES.items() if name == node.node_tree.name),
             None
@@ -26,30 +17,8 @@ def find_atroxa_group_node(node_tree):
         if key:
             return node, key
     return None, None
-"""
-    def transfer_hero_engine_textures(hero_node, target_tree):
-        Reads images directly off the HeroEngine node's custom pointer
-        properties and assigns them to matching Image Texture nodes by name.
-        target_images = {
-            node.name: node
-            for node in target_tree.nodes
-            if node.type == 'TEX_IMAGE'
-        }
+# Example: find_atroxa_group_node(mat.node_tree) -> (<ShaderNodeGroup "Group">, "GARMENT")
 
-        for hero_field, koda_node_name in config.HERO_ENGINE_TEX_FIELDS.items():
-            image = getattr(hero_node, hero_field, None)
-            if not image:
-                continue
-
-            target_node = target_images.get(koda_node_name)
-            if not target_node:
-                continue
-
-            try:
-                target_node.image = image
-            except Exception as e:
-                print(f"[Auto Koda] Failed to transfer '{hero_field}' -> '{koda_node_name}': {e}")
-"""
 
 def transfer_hero_engine_properties(hero_node, koda_node):
     """Copies HeroEngine's custom scalar/color properties onto matching
@@ -76,3 +45,4 @@ def transfer_hero_engine_properties(hero_node, koda_node):
             print(f"[Auto Koda] Failed to copy '{hero_prop}' -> '{koda_input_name}'")
 
     return copied
+# Example: transfer_hero_engine_properties(hero_node, koda_node) -> 13

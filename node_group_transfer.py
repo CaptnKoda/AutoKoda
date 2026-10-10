@@ -5,16 +5,7 @@ now use identical socket names, so no per-field mapping table is needed
 here -- the only remaining per-type mapping is ATROXA_NODE_NAMES <->
 KODA_NODE_NAMES in config.py."""
 
-from .socket_utils import copy_socket_to_socket, resolve_source_socket
-
-
-def _linked_image_node(socket):
-    """Follow `socket` back through any Reroute nodes and return the
-    TEX_IMAGE node feeding it, or None if it isn't fed by an image."""
-    src = resolve_source_socket(socket)
-    if src and src.node.type == 'TEX_IMAGE':
-        return src.node
-    return None
+from .socket_utils import copy_socket_to_socket, get_source_image_node
 
 
 def transfer_group_inputs(source_node, target_node):
@@ -31,7 +22,7 @@ def transfer_group_inputs(source_node, target_node):
             continue
 
         if source_input.is_linked:
-            source_img_node = _linked_image_node(source_input)
+            source_img_node = get_source_image_node(source_input)
             if not source_img_node or not source_img_node.image:
                 print(
                     f"[Auto Koda] '{target_input.name}' is linked on the source "
@@ -46,7 +37,7 @@ def transfer_group_inputs(source_node, target_node):
                 )
                 continue
 
-            target_img_node = _linked_image_node(target_input)
+            target_img_node = get_source_image_node(target_input)
             if not target_img_node:
                 print(
                     f"[Auto Koda] '{target_input.name}' on the Koda shader is not "
@@ -66,3 +57,4 @@ def transfer_group_inputs(source_node, target_node):
                 print(f"[Auto Koda] Failed to copy socket '{target_input.name}'")
 
     return values_copied, images_copied
+# Example: transfer_group_inputs(atroxa_node, koda_node) -> (14, 5)  # (values copied, images copied)

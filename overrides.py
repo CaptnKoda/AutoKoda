@@ -25,6 +25,7 @@ def sync_master_inputs_to_override(master_node, override_tree):
             print(f"[SKIP] {master_input.name} (non-writable)")
 
     return copied
+# Example: sync_master_inputs_to_override(master_node, override_node.node_tree) -> 22
 
 
 def link_override_to_master(material, master_node, override_node):
@@ -46,6 +47,7 @@ def link_override_to_master(material, master_node, override_node):
                 print(f"[FAIL LINK] {master_input.name} - incompatible socket type")
 
     return linked_count
+# Example: link_override_to_master(mat, master_node, override_node) -> 22
 
 
 def run_override_sync(do_sync_values=True, do_link_override=False):

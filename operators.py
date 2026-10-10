@@ -1,7 +1,22 @@
 import bpy # type: ignore
 from . import helpers
-from bpy.props import StringProperty, BoolProperty, FloatProperty  # type: ignore
-from bpy.types import AddonPreferences # type: ignore
+from bpy.props import BoolProperty, FloatProperty  # type: ignore
+
+
+def _selected_meshes(context):
+    return [o for o in context.selected_objects if o.type == 'MESH']
+# Example: _selected_meshes(context) -> [bpy.data.objects["Body"], bpy.data.objects["Head"]]
+
+
+def _shaders_path_missing(operator):
+    """Reports an error on `operator` and returns True if no Shaders.blend
+    path is available."""
+    if helpers.get_shaders_blend_path():
+        return False
+    operator.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
+    return True
+# Example: _shaders_path_missing(self) -> False
+
 
 class Auto_Koda_Selected(bpy.types.Operator):
     bl_idname = "autokoda.convert_selected"
@@ -10,17 +25,15 @@ class Auto_Koda_Selected(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        shadersBlend = helpers.get_shaders_blend_path()
-        if not shadersBlend:
-            self.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
+        if _shaders_path_missing(self):
             return {'CANCELLED'}
 
-        for obj in bpy.context.selected_objects:
-            if obj.type == 'MESH':
-                helpers.process_object(obj)
+        for obj in _selected_meshes(context):
+            helpers.process_object(obj)
 
         return {'FINISHED'}
-                
+    # Example: execute(context) -> {'FINISHED'}
+
 class Auto_Koda_Crunch_Selected(bpy.types.Operator):
     bl_idname = "autokoda.crunch_selected"
     bl_label = "Auto Crunch"
@@ -28,12 +41,10 @@ class Auto_Koda_Crunch_Selected(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        shadersBlend = helpers.get_shaders_blend_path()
-        if not shadersBlend:
-            self.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
+        if _shaders_path_missing(self):
             return {'CANCELLED'}
 
-        objects = [o for o in bpy.context.selected_objects if o.type == 'MESH']
+        objects = _selected_meshes(context)
         if not objects:
             self.report({'WARNING'}, "No mesh objects selected")
             return {'CANCELLED'}
@@ -57,40 +68,43 @@ class Auto_Koda_Crunch_Selected(bpy.types.Operator):
             )
 
         return {'FINISHED'}
+    # Example: execute(context) -> {'FINISHED'}  (reports "Built 5 native material(s), converted 2 object(s)")
 
-class Auto_Koda_OT_SyncOverride(bpy.types.Operator):
+class _OverrideSyncBase:
+    """Shared execute() for the three override operators; subclasses only
+    choose which steps of run_override_sync() to run."""
+    bl_options = {'REGISTER', 'UNDO'}
+    do_sync_values = False
+    do_link_override = False
+
+    def execute(self, context):
+        helpers.run_override_sync(
+            do_sync_values=self.do_sync_values,
+            do_link_override=self.do_link_override,
+        )
+        self.report({'INFO'}, f"{self.bl_label} executed")
+        return {'FINISHED'}
+    # Example: execute(context) -> {'FINISHED'}  (reports "Sync Override executed")
+
+class Auto_Koda_OT_SyncOverride(_OverrideSyncBase, bpy.types.Operator):
     bl_idname = "autokoda.sync_override"
     bl_label = "Sync Override"
     bl_description = "Sync Shader Node Group settings to Material Override Group"
-    bl_options = {'REGISTER', 'UNDO'}
+    do_sync_values = True
 
-    def execute(self, context):
-        helpers.run_override_sync(do_sync_values=True, do_link_override=False)
-        self.report({'INFO'}, "Sync Override executed")
-        return {'FINISHED'}
-
-class Auto_Koda_OT_LinkOverride(bpy.types.Operator):
+class Auto_Koda_OT_LinkOverride(_OverrideSyncBase, bpy.types.Operator):
     bl_idname = "autokoda.link_override"
     bl_label = "Link Override"
     bl_description = "Link Shader Node Group settings to Material Override Group"
-    bl_options = {'REGISTER', 'UNDO'}
+    do_link_override = True
 
-    def execute(self, context):
-        helpers.run_override_sync(do_sync_values=False, do_link_override=True)
-        self.report({'INFO'}, "Link Override executed")
-        return {'FINISHED'}
-
-class Auto_Koda_OT_SyncLinkOverride(bpy.types.Operator):
+class Auto_Koda_OT_SyncLinkOverride(_OverrideSyncBase, bpy.types.Operator):
     bl_idname = "autokoda.sync_link_override"
     bl_label = "Sync/Link Override"
     bl_description = "Sync and Link Shader Node Group settings to Material Override Group"
-    bl_options = {'REGISTER', 'UNDO'}
+    do_sync_values = True
+    do_link_override = True
 
-    def execute(self, context):
-        helpers.run_override_sync(do_sync_values=True, do_link_override=True)
-        self.report({'INFO'}, "Sync/Link Override executed")
-        return {'FINISHED'}
-    
 class Auto_Koda_OT_ToggleSubsurfViewport(bpy.types.Operator):
     bl_idname = "autokoda.toggle_subsurf_viewport"
     bl_label = "Toggle Subsurf Viewport Display"
@@ -110,6 +124,7 @@ class Auto_Koda_OT_ToggleSubsurfViewport(bpy.types.Operator):
 
         self.report({'INFO'}, f"Toggled {count} Subdivision Surface modifier(s)")
         return {'FINISHED'}
+    # Example: execute(context) -> {'FINISHED'}  (reports "Toggled 3 Subdivision Surface modifier(s)")
 
 class Auto_Koda_OT_PrepareMeshes(bpy.types.Operator):
     bl_idname = "autokoda.prepare_meshes"
@@ -118,7 +133,7 @@ class Auto_Koda_OT_PrepareMeshes(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        objects = [o for o in context.selected_objects if o.type == 'MESH']
+        objects = _selected_meshes(context)
         if not objects:
             self.report({'WARNING'}, "No mesh objects selected")
             return {'CANCELLED'}
@@ -126,68 +141,53 @@ class Auto_Koda_OT_PrepareMeshes(bpy.types.Operator):
         count = helpers.prepare_meshes(objects)
         self.report({'INFO'}, f"Prepared {count} mesh(es)")
         return {'FINISHED'}
+    # Example: execute(context) -> {'FINISHED'}  (reports "Prepared 3 mesh(es)")
 
-class Auto_Koda_OT_GarmentHuePrimary(bpy.types.Operator):
+class _GarmentHueApplyBase:
+    """Shared execute() for the Primary/Secondary garment hue operators;
+    subclasses set which palette slot (1 or 2) they write to."""
+    bl_options = {'REGISTER', 'UNDO'}
+    palette_slot = 1
+
+    def execute(self, context):
+        from . import garment_hue, garment_hue_xml
+
+        filename = garment_hue.get_selected_filename(context.scene)
+        if not filename:
+            self.report({'WARNING'}, "No garment hue file selected")
+            return {'CANCELLED'}
+
+        objects = _selected_meshes(context)
+        if not objects:
+            self.report({'WARNING'}, "No mesh objects selected")
+            return {'CANCELLED'}
+
+        files_applied, nodes_updated = garment_hue_xml.apply_garment_hue_to_objects(
+            objects, filename, slot=self.palette_slot
+        )
+
+        if not files_applied:
+            self.report({'ERROR'}, f"Could not read '{filename}' - check console")
+            return {'CANCELLED'}
+
+        self.report({'INFO'}, f"Applied '{filename}' ({self.bl_label}) to {nodes_updated} node(s)")
+        return {'FINISHED'}
+    # Example: execute(context) -> {'FINISHED'}  (reports "Applied 'garmenthue_red_light.xml' (Primary) to 4 node(s)")
+
+
+class Auto_Koda_OT_GarmentHuePrimary(_GarmentHueApplyBase, bpy.types.Operator):
     bl_idname = "autokoda.garment_hue_primary"
     bl_label = "Primary"
     bl_description = "Apply the selected garment hue file to Palette 1 on selected objects' Koda materials"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self, context):
-        from . import garment_hue, garment_hue_xml
-
-        filename = garment_hue.get_selected_filename(context.scene)
-        if not filename:
-            self.report({'WARNING'}, "No garment hue file selected")
-            return {'CANCELLED'}
-
-        objects = [o for o in context.selected_objects if o.type == 'MESH']
-        if not objects:
-            self.report({'WARNING'}, "No mesh objects selected")
-            return {'CANCELLED'}
-
-        files_applied, nodes_updated = garment_hue_xml.apply_garment_hue_to_objects(
-            objects, filename, slot=1
-        )
-
-        if not files_applied:
-            self.report({'ERROR'}, f"Could not read '{filename}' - check console")
-            return {'CANCELLED'}
-
-        self.report({'INFO'}, f"Applied '{filename}' (Primary) to {nodes_updated} node(s)")
-        return {'FINISHED'}
+    palette_slot = 1
 
 
-class Auto_Koda_OT_GarmentHueSecondary(bpy.types.Operator):
+class Auto_Koda_OT_GarmentHueSecondary(_GarmentHueApplyBase, bpy.types.Operator):
     bl_idname = "autokoda.garment_hue_secondary"
     bl_label = "Secondary"
     bl_description = "Apply the selected garment hue file to Palette 2 on selected objects' Koda materials"
-    bl_options = {'REGISTER', 'UNDO'}
+    palette_slot = 2
 
-    def execute(self, context):
-        from . import garment_hue, garment_hue_xml
-
-        filename = garment_hue.get_selected_filename(context.scene)
-        if not filename:
-            self.report({'WARNING'}, "No garment hue file selected")
-            return {'CANCELLED'}
-
-        objects = [o for o in context.selected_objects if o.type == 'MESH']
-        if not objects:
-            self.report({'WARNING'}, "No mesh objects selected")
-            return {'CANCELLED'}
-
-        files_applied, nodes_updated = garment_hue_xml.apply_garment_hue_to_objects(
-            objects, filename, slot=2
-        )
-
-        if not files_applied:
-            self.report({'ERROR'}, f"Could not read '{filename}' - check console")
-            return {'CANCELLED'}
-
-        self.report({'INFO'}, f"Applied '{filename}' (Secondary) to {nodes_updated} node(s)")
-        return {'FINISHED'}
-    
 class Auto_Koda_OT_RefreshGarmentHueList(bpy.types.Operator):
     bl_idname = "autokoda.refresh_garment_hue_list"
     bl_label = "Refresh Garment Hue List"
@@ -198,6 +198,7 @@ class Auto_Koda_OT_RefreshGarmentHueList(bpy.types.Operator):
         from . import garment_hue
         garment_hue.refresh_garment_hue_collection(context.scene)
         return {'FINISHED'}
+    # Example: execute(context) -> {'FINISHED'}
 
 class Auto_Koda_OT_RefreshJBAList(bpy.types.Operator):
     bl_idname = "autokoda.refresh_jba_list"
@@ -207,9 +208,9 @@ class Auto_Koda_OT_RefreshJBAList(bpy.types.Operator):
 
     def execute(self, context):
         from . import animations
-        animations.refresh_jba_folder_list(context.scene)
-        animations.refresh_jba_collection(context.scene)
+        animations.refresh_jba_lists(context.scene)
         return {'FINISHED'}
+    # Example: execute(context) -> {'FINISHED'}
 
 class Auto_Koda_OT_ImportJBA(bpy.types.Operator):
     bl_idname = "autokoda.import_jba"
@@ -246,6 +247,7 @@ class Auto_Koda_OT_ImportJBA(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         return context.active_object is not None and context.active_object.type == 'ARMATURE'
+    # Example: poll(context) -> True  (active object is an armature)
 
     def execute(self, context):
         from . import animations, jba_bridge
@@ -265,3 +267,4 @@ class Auto_Koda_OT_ImportJBA(bpy.types.Operator):
             return {'FINISHED'}
 
         return {'CANCELLED'}
+    # Example: execute(context) -> {'FINISHED'}  (reports "Imported 'run_fwd.jba' onto 'Armature'")

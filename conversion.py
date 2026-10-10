@@ -1,6 +1,6 @@
 from . import config
 from .material_io import link_material_with_koda_group, assign_linked_material, finalize_material_swap
-from .node_utils import find_koda_group_node
+from .node_utils import find_group_node, is_koda_group_node
 from .hero_engine import find_atroxa_group_node
 from .node_group_transfer import transfer_group_inputs
 
@@ -15,7 +15,7 @@ def _process_atroxa_material(obj, mat, slot_index, atroxa_node, key):
     if not new_mat:
         return
 
-    koda_node = find_koda_group_node(new_mat.node_tree, koda_shader_name)
+    koda_node = find_group_node(new_mat.node_tree, exact_name=koda_shader_name)
     if not koda_node:
         print(f"[Auto Koda] Could not find Koda group node in linked material for '{koda_shader_name}'")
         return
@@ -24,7 +24,7 @@ def _process_atroxa_material(obj, mat, slot_index, atroxa_node, key):
     print(f"[Auto Koda] '{mat.name}': transferred {values_copied} value(s), {images_copied} image(s)")
 
     assign_linked_material(obj, new_mat, target_slot_index=slot_index, preserve_inputs=True)
-    finalize_material_swap(obj, mat, new_mat, slot_index, koda_shader_name, log_label="Atroxa material")
+    finalize_material_swap(mat, new_mat, slot_index, koda_shader_name, log_label="Atroxa material")
 
 
 def process_object(obj):
@@ -36,12 +36,7 @@ def process_object(obj):
         if not mat or not mat.use_nodes:
             continue
 
-        if any(
-            node.type == 'GROUP'
-            and node.node_tree
-            and node.node_tree.name in config.KODA_NODE_NAMES.values()
-            for node in mat.node_tree.nodes
-        ):
+        if any(is_koda_group_node(node) for node in mat.node_tree.nodes):
             continue
 
         atroxa_node, key = find_atroxa_group_node(mat.node_tree)

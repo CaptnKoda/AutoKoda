@@ -1,6 +1,7 @@
 import bpy # type: ignore
 from .prefs import get_shaders_blend_path
 from .socket_utils import copy_socket_to_socket
+from .node_utils import find_group_node
 
 
 def link_material_with_koda_group(koda_group_name):
@@ -20,20 +21,16 @@ def link_material_with_koda_group(koda_group_name):
         if not mat.use_nodes:
             continue
 
-        for node in mat.node_tree.nodes:
-            if (
-                node.type == 'GROUP'
-                and node.node_tree
-                and node.node_tree.name == koda_group_name
-            ):
-                try:
-                    return mat.copy()
-                except Exception as e:
-                    print(f"[Auto Koda] Failed to copy material for '{koda_group_name}': {e}")
-                    return None
+        if find_group_node(mat.node_tree, exact_name=koda_group_name):
+            try:
+                return mat.copy()
+            except Exception as e:
+                print(f"[Auto Koda] Failed to copy material for '{koda_group_name}': {e}")
+                return None
 
     print(f"[Auto Koda] No linked template material found for '{koda_group_name}'")
     return None
+# Example: link_material_with_koda_group("CaptnKoda SWTOR - Garment Shader") -> <Material "Garment Template.001">
 
 
 def assign_linked_material(obj, new_material, target_slot_index=None, preserve_inputs=False):
@@ -80,34 +77,33 @@ def remap_old_material_references(old_mat, new_mat):
         return
 
     old_name = old_mat.name
-    old_mat_ptr = old_mat
 
     for obj in bpy.data.objects:
         if not obj or not hasattr(obj.data, "materials"):
             continue
 
         for i, slot_mat in enumerate(obj.data.materials):
-            if slot_mat == old_mat_ptr:
+            if slot_mat == old_mat:
                 obj.data.materials[i] = new_mat
                 print(f"[Auto Koda] Remapped material on '{obj.name}' slot {i}")
 
-    if old_mat_ptr.users <= 1:
+    if old_mat.users <= 1:
         try:
-            bpy.data.materials.remove(old_mat_ptr)
+            bpy.data.materials.remove(old_mat)
             print(f"[Auto Koda] Removed unused material '{old_name}'")
         except Exception as e:
             print(f"[Auto Koda] Failed to remove '{old_name}': {e}")
 
 
-def finalize_material_swap(obj, mat, new_mat, slot_index, koda_shader_name, log_label="material"):
-    """Shared rename/remap/log step used after both the Hero Gravitas and
-    HeroEngine conversion paths successfully build a replacement material."""
+def finalize_material_swap(mat, new_mat, slot_index, koda_shader_name, log_label="material"):
+    """Rename/remap/log step run after a replacement Koda material has been
+    built: the new material takes over the old one's name, every user of
+    the old material is pointed at the new one, and the old one is removed."""
     old_name = mat.name
     mat.name = f"{old_name}_OLD"
     new_mat.name = old_name
 
-    old_mat = bpy.data.materials.get(f"{old_name}_OLD")
-    remap_old_material_references(old_mat, new_mat)
+    remap_old_material_references(mat, new_mat)
 
     print(
         f"[Auto Koda] Replaced {log_label} '{old_name}' "

@@ -22,13 +22,12 @@ def coerce_value_for_socket(value, target_socket):
                 value = value[:target_len]
             else:
                 value = float(value[0])
-        elif isinstance(target_default, float) and isinstance(value, (list, tuple)):
-            value = float(value[0])
 
         target_socket.default_value = value
         return True
     except Exception:
         return False
+# Example: coerce_value_for_socket([0.61, 0.92, 1.0], color_socket) -> True (socket set to (0.61, 0.92, 1.0, 1.0))
 
 
 def copy_socket_to_socket(source_socket, target_socket):
@@ -36,6 +35,8 @@ def copy_socket_to_socket(source_socket, target_socket):
     if not hasattr(source_socket, "default_value"):
         return False
     return coerce_value_for_socket(source_socket.default_value, target_socket)
+# Example: copy_socket_to_socket(atroxa_node.inputs["Palette1 Hue"], koda_node.inputs["Palette1 Hue"]) -> True
+
 
 def resolve_source_socket(socket, max_depth=32):
     """Follow a linked input back through Reroute nodes to the real source socket."""
@@ -50,10 +51,14 @@ def resolve_source_socket(socket, max_depth=32):
             return None
         src = inp.links[0].from_socket
     return None
+# Example: resolve_source_socket(node.inputs["DiffuseMap Color"]) -> <NodeSocketColor "Color"> on "Image Texture.002"
 
 
-def get_source_image(socket):
+def get_source_image_node(socket):
+    """Follow `socket` back through any Reroute nodes and return the
+    TEX_IMAGE node feeding it, or None if it isn't fed by an image."""
     src = resolve_source_socket(socket)
     if src and src.node.type == 'TEX_IMAGE':
-        return src.node.image
+        return src.node
     return None
+# Example: get_source_image_node(node.inputs["DiffuseMap Color"]) -> <ShaderNodeTexImage "Image Texture.002">

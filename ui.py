@@ -1,7 +1,23 @@
 import bpy # type: ignore
-from . import config, operators, helpers, garment_hue
+from . import config, operators, helpers
 from bpy.props import StringProperty # type: ignore
 from bpy.types import AddonPreferences # type: ignore
+
+
+def _draw_status_box(layout, message, button_text, path=None, alert=False):
+    """Draws one Settings status box: a status line, the configured path
+    (if given), and a button that opens this addon's preferences."""
+    box = layout.box()
+    box.alert = alert
+    box.row().label(text=message, icon='ERROR' if alert else 'CHECKMARK')
+    if path:
+        box.row().label(text=path, icon='FILE_BLEND' if path.lower().endswith(".blend") else 'FILE_FOLDER')
+    box.row().operator(
+        "preferences.addon_show",
+        text=button_text,
+        icon='FILE_FOLDER'
+    ).module = __package__
+
 
 class Auto_Koda_PT_Settings(bpy.types.Panel):
     bl_options = {'DEFAULT_CLOSED'}
@@ -13,95 +29,28 @@ class Auto_Koda_PT_Settings(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        status_box = layout.box()
 
         shaders_blend_loc = helpers.get_shaders_blend_path()
-
         if not shaders_blend_loc or ".blend" not in shaders_blend_loc:
-            status_box.alert = True
-            row = status_box.row()
-            row.label(
-                text=f"Shaders.blend path not set or invalid: {shaders_blend_loc}",
-                icon='ERROR'
-            )
-            row = status_box.row()
-            row.operator(
-                "preferences.addon_show",
-                text="Set Shaders.blend",
-                icon='FILE_FOLDER'
-            ).module = __package__
-
+            _draw_status_box(layout, f"Shaders.blend path not set or invalid: {shaders_blend_loc}",
+                             "Set Shaders.blend", alert=True)
         elif shaders_blend_loc == config.DEFAULT_SHADERS:
-            row = status_box.row()
-            row.label(text="Using default Shaders.blend", icon='CHECKMARK')
-            row = status_box.row()
-            row.operator(
-                "preferences.addon_show",
-                text="Set Custom Shaders.blend",
-                icon='FILE_FOLDER'
-            ).module = __package__
-
+            _draw_status_box(layout, "Using default Shaders.blend", "Set Custom Shaders.blend")
         else:
-            row = status_box.row()
-            row.label(text="Using custom Shaders.blend", icon='CHECKMARK')
-            row = status_box.row()
-            row.label(text=shaders_blend_loc, icon='FILE_BLEND')
-            row = status_box.row()
-            row.operator(
-                "preferences.addon_show",
-                text="Change Custom Shaders.blend",
-                icon='FILE_FOLDER'
-            ).module = __package__
+            _draw_status_box(layout, "Using custom Shaders.blend", "Change Custom Shaders.blend",
+                             path=shaders_blend_loc)
 
-        resource_box = layout.box()
         resources_path = helpers.get_resources_folder_path()
-
         if not resources_path:
-            resource_box.alert = True
-            row = resource_box.row()
-            row.label(text="TOR resources folder not set or invalid", icon='ERROR')
-            row = resource_box.row()
-            row.operator(
-                "preferences.addon_show",
-                text="Set Resources Folder",
-                icon='FILE_FOLDER'
-            ).module = __package__
+            _draw_status_box(layout, "TOR resources folder not set or invalid", "Set Resources Folder", alert=True)
         else:
-            row = resource_box.row()
-            row.label(text="Resources folder configured", icon='CHECKMARK')
-            row = resource_box.row()
-            row.label(text=resources_path, icon='FILE_FOLDER')
-            row = resource_box.row()
-            row.operator(
-                "preferences.addon_show",
-                text="Change Resources Folder",
-                icon='FILE_FOLDER'
-            ).module = __package__
+            _draw_status_box(layout, "Resources folder configured", "Change Resources Folder", path=resources_path)
 
-        anim_box = layout.box()
         anim_root_path = helpers.get_anim_root_path()
-
         if not anim_root_path:
-            anim_box.alert = True
-            row = anim_box.row()
-            row.label(text="Anim folder not set or invalid", icon='ERROR')
-            row = anim_box.row()
-            row.operator(
-                "preferences.addon_show",
-                text="Set Anim Folder",
-                icon='FILE_FOLDER'
-            ).module = __package__
+            _draw_status_box(layout, "Anim folder not set or invalid", "Set Anim Folder", alert=True)
         else:
-            row = anim_box.row()
-            row.label(text="Anim folder configured", icon='CHECKMARK')
-            row = anim_box.row()
-            row.label(text=anim_root_path, icon='FILE_FOLDER')
-            row = anim_box.row()
-            row.operator(
-                "preferences.addon_show",
-                text="Change Anim Folder",
-                icon='FILE_FOLDER'
-            ).module = __package__
+            _draw_status_box(layout, "Anim folder configured", "Change Anim Folder", path=anim_root_path)
 
 class Auto_Koda_PT_Process_Materials(bpy.types.Panel):
     bl_label = "Process Materials"
@@ -125,6 +74,7 @@ class Auto_Koda_PT_Material_Overrides(bpy.types.Panel):
     def poll(cls, context):
         space = context.space_data
         return space and space.type == 'NODE_EDITOR' and space.tree_type == 'ShaderNodeTree'
+    # Example: poll(context) -> True  (Shader Editor is open)
 
     def draw(self, context):
         layout = self.layout
@@ -244,6 +194,7 @@ class AUTOKODA_UL_garment_hue(bpy.types.UIList):
             flt_neworder = list(range(len(items)))
 
         return flt_flags, flt_neworder
+    # Example: filter_items(context, scene, "auto_koda_garment_hue_files") -> ([1073741824, 0, 1073741824], [2, 0, 1])
 
 class Auto_Koda_PT_Animations(bpy.types.Panel):
     bl_label = "Animations"

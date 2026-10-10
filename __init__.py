@@ -36,15 +36,23 @@ def _refresh_garment_hue_for_current_scene():
     except Exception as e:
         print(f"[Auto Koda] Garment hue refresh skipped: {e}")
     return None  # for timer: don't repeat
+# Example: _refresh_garment_hue_for_current_scene() -> None  (timer runs once)
 
 
 def _refresh_jba_list_for_current_scene():
     try:
-        animations.refresh_jba_folder_list(bpy.context.scene)
-        animations.refresh_jba_collection(bpy.context.scene)
+        animations.refresh_jba_lists(bpy.context.scene)
     except Exception as e:
         print(f"[Auto Koda] JBA animation list refresh skipped: {e}")
     return None  # for timer: don't repeat
+# Example: _refresh_jba_list_for_current_scene() -> None  (timer runs once)
+
+
+def _schedule_list_refresh():
+    """Refreshes the garment hue and JBA lists shortly after now, once
+    the scene is safe to modify."""
+    bpy.app.timers.register(_refresh_garment_hue_for_current_scene, first_interval=0.1)
+    bpy.app.timers.register(_refresh_jba_list_for_current_scene, first_interval=0.1)
 
 
 def _on_load_post(dummy):
@@ -52,8 +60,7 @@ def _on_load_post(dummy):
     file, opening a saved file, or File > New), so the garment hue list
     and JBA animation list - and any stale data baked into an older save
     - get rebuilt fresh."""
-    bpy.app.timers.register(_refresh_garment_hue_for_current_scene, first_interval=0.1)
-    bpy.app.timers.register(_refresh_jba_list_for_current_scene, first_interval=0.1)
+    _schedule_list_refresh()
 
 
 def register():
@@ -95,8 +102,7 @@ def register():
 
     # Cover the case where the addon is enabled live, mid-session, with a
     # file already open (load_post won't fire again for an already-open file)
-    bpy.app.timers.register(_refresh_garment_hue_for_current_scene, first_interval=0.1)
-    bpy.app.timers.register(_refresh_jba_list_for_current_scene, first_interval=0.1)
+    _schedule_list_refresh()
 
 
 def unregister():

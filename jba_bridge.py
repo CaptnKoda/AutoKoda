@@ -14,9 +14,8 @@ neither know nor care which operator class they came from, only that
 report() and those four attributes exist.
 """
 
-import bpy  # type: ignore
-
-EXTERNAL_SWTOR_IO_ADDON_MODULE = "swtor_io_tools"
+from .config import EXTERNAL_SWTOR_IO_ADDON_MODULE
+from .prefs import is_addon_enabled
 
 
 def import_jba_onto_active_armature(operator, context, filepath):
@@ -27,7 +26,7 @@ def import_jba_onto_active_armature(operator, context, filepath):
     within swtor_io_tools are reported via operator.report() by its own
     load()/build(), not duplicated here.
     """
-    if EXTERNAL_SWTOR_IO_ADDON_MODULE not in bpy.context.preferences.addons:
+    if not is_addon_enabled(EXTERNAL_SWTOR_IO_ADDON_MODULE):
         operator.report({'ERROR'}, f"'{EXTERNAL_SWTOR_IO_ADDON_MODULE}' addon is not installed/enabled")
         return False
 
@@ -38,3 +37,4 @@ def import_jba_onto_active_armature(operator, context, filepath):
         return False
 
     return load(operator, context, filepath)
+# Example: import_jba_onto_active_armature(op, context, ".../humanoid/bfa/run_fwd.jba") -> True

@@ -4,3 +4,6 @@
 *.blend1
 res/ShadersPrototype.blend
 res/textures/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+__pycache__/
+*.pyc
+*~

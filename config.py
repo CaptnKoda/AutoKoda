@@ -6,6 +6,10 @@ addon_dir = os.path.dirname(__file__)
 DEFAULT_SHADERS = os.path.join(addon_dir, "res", "Shaders.blend")
 GARMENT_HUE_SUBPATH = os.path.join("art", "dynamic", "garmenthue")
 
+# Module name of the external swtor_io_tools addon that the JBA and
+# material-by-name bridges call into.
+EXTERNAL_SWTOR_IO_ADDON_MODULE = "swtor_io_tools"
+
 KODA_NODE_NAMES = {
     "EYE"       : "CaptnKoda SWTOR - Eye Shader",
     "GARMENT"   : "CaptnKoda SWTOR - Garment Shader",
@@ -47,11 +51,11 @@ HERO_ENGINE_PROP_TO_KODA_INPUT = {
 
 Shader_Pairs = [
     {
-        "master_name": "CaptnKoda SWTOR - SkinB Shader",
+        "master_name": KODA_NODE_NAMES["SKINB"],
         "override_suffix": "Skin Override"
     },
     {
-        "master_name": "CaptnKoda SWTOR - Garment Shader",
+        "master_name": KODA_NODE_NAMES["GARMENT"],
         "override_suffix": "Garment Override"
     },
     # Add more master/override pairs here

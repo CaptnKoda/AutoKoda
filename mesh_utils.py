@@ -27,6 +27,7 @@ def toggle_subsurf_viewport_display(objects):
 
     print(f"[Auto Koda] Set {len(subsurf_mods)} Subdivision Surface modifier(s) viewport display to {new_state}")
     return len(subsurf_mods)
+# Example: toggle_subsurf_viewport_display(context.selected_objects) -> 3
 
 
 def prepare_meshes(objects):
@@ -81,3 +82,4 @@ def prepare_meshes(objects):
         print(f"[Auto Koda] Prepared mesh on '{obj.name}'")
 
     return processed
+# Example: prepare_meshes([body, head, cape]) -> 3
