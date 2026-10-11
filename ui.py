@@ -63,6 +63,32 @@ class Auto_Koda_PT_Process_Materials(bpy.types.Panel):
         layout = self.layout
         layout.operator(operators.Auto_Koda_Crunch_Selected.bl_idname, text="Auto Crunch (Selected)", icon='MODIFIER')
 
+class Auto_Koda_PT_Import_Item(bpy.types.Panel):
+    bl_label = "Import Item"
+    bl_idname = "VIEW3D_PT_auto_koda_import_item"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Auto Koda"
+
+    def draw(self, context):
+        layout = self.layout
+
+        if not helpers.get_resources_folder_path():
+            row = layout.row()
+            row.alert = True
+            row.label(text="Set the Resources Folder in Add-on Preferences first", icon='ERROR')
+
+        row = layout.row(align=True)
+        row.prop(context.scene, "auto_koda_ipp", text="", icon='MOD_CLOTH')
+        sub = row.row(align=True)
+        sub.ui_units_x = 3
+        sub.prop(context.scene, "auto_koda_body_type", text="")
+
+        layout.operator(
+            operators.Auto_Koda_OT_ImportIpp.bl_idname,
+            text=f"Import ({context.scene.auto_koda_body_type.upper()})", icon='IMPORT'
+        )
+
 class Auto_Koda_PT_Material_Overrides(bpy.types.Panel):
     bl_label = "Material Overrides"
     bl_idname = "NODE_PT_auto_koda_material_overrides"

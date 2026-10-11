@@ -79,3 +79,61 @@ def build_named_materials_for_objects(objects):
 
     return built, errors
 # Example: build_named_materials_for_objects([body, head]) -> (5, ["'mat_cape': missing diffuse texture"])
+
+
+# swtor_io_tools' own preference name -> ImportGR2 operator property,
+# mirroring what ImportGR2.invoke() seeds from its preferences.
+_GR2_PREF_TO_OPERATOR_PROP = {
+    "gr2_import_collision"               : "import_collision",
+    "gr2_name_as_filename"               : "name_as_filename",
+    "gr2_apply_axis_conversion"          : "apply_axis_conversion",
+    "gr2_scale_object"                   : "scale_object",
+    "gr2_scale_factor"                   : "scale_factor",
+    "gr2_blender_friendly_skeleton"      : "blender_friendly_skeleton",
+    "gr2_apply_materials_by_name_default": "apply_materials_by_name",
+}
+
+
+def import_gr2_files(context, filepaths):
+    """Imports `filepaths` through swtor_io_tools' ImportGR2 operator
+    (import_mesh.gr2), using that addon's own GR2 import preferences.
+
+    Returns (imported_objects, error_message). error_message is None on
+    success. Never raises.
+    """
+    if not is_addon_enabled(EXTERNAL_SWTOR_IO_ADDON_MODULE):
+        return [], f"'{EXTERNAL_SWTOR_IO_ADDON_MODULE}' addon is not installed/enabled"
+
+    import os
+    import bpy  # type: ignore
+
+    io_prefs = context.preferences.addons[EXTERNAL_SWTOR_IO_ADDON_MODULE].preferences
+    settings = {
+        op_prop: getattr(io_prefs, pref)
+        for pref, op_prop in _GR2_PREF_TO_OPERATOR_PROP.items()
+        if hasattr(io_prefs, pref)
+    }
+
+    # ImportGR2 takes one directory + file names per call
+    by_directory = {}
+    for path in filepaths:
+        by_directory.setdefault(os.path.dirname(path), []).append(os.path.basename(path))
+
+    objects_before = set(bpy.data.objects)
+
+    for directory, names in by_directory.items():
+        try:
+            result = bpy.ops.import_mesh.gr2(
+                'EXEC_DEFAULT',
+                directory=directory,
+                files=[{"name": name} for name in names],
+                **settings,
+            )
+        except Exception as e:
+            return [], f"GR2 import failed: {e}"
+
+        if 'FINISHED' not in result:
+            return [], f"GR2 import cancelled for {', '.join(names)} (see console)"
+
+    return [o for o in bpy.data.objects if o not in objects_before], None
+# Example: import_gr2_files(context, [".../chest_tight_bmn_archetype.gr2"]) -> ([bpy.data.objects["chest_tight_bmn_archetype"]], None)

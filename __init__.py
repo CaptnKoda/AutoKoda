@@ -1,8 +1,9 @@
 import bpy # type: ignore
-from . import operators, ui, garment_hue, animations
+from . import operators, ui, garment_hue, animations, config
 
 classes = [
     ui.Auto_Koda_PT_Process_Materials,
+    ui.Auto_Koda_PT_Import_Item,
     ui.Auto_Koda_PT_Settings,
     ui.Auto_Koda_PT_Material_Overrides,
     ui.Auto_Koda_Preferences,
@@ -23,6 +24,7 @@ classes = [
     operators.Auto_Koda_OT_RefreshGarmentHueList,
     operators.Auto_Koda_OT_RefreshJBAList,
     operators.Auto_Koda_OT_ImportJBA,
+    operators.Auto_Koda_OT_ImportIpp,
 
     garment_hue.Auto_Koda_GarmentHueItem,
     animations.Auto_Koda_JBAItem,
@@ -98,6 +100,17 @@ def register():
         default=-1
     )
 
+    bpy.types.Scene.auto_koda_ipp = bpy.props.StringProperty(
+        name="Item Appearance",
+        description="Item appearance node to import, e.g. ipp.class.spy.quest.tdps2.t1x1.chest",
+    )
+    bpy.types.Scene.auto_koda_body_type = bpy.props.EnumProperty(
+        name="Body Type",
+        description="Body type to import the item's models as",
+        items=[(bt, bt.upper(), f"Import '{bt}' models") for bt in config.BODY_TYPES],
+        default=config.DEFAULT_BODY_TYPE,
+    )
+
     bpy.app.handlers.load_post.append(_on_load_post)
 
     # Cover the case where the addon is enabled live, mid-session, with a
@@ -108,6 +121,9 @@ def register():
 def unregister():
     if _on_load_post in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_on_load_post)
+
+    del bpy.types.Scene.auto_koda_body_type
+    del bpy.types.Scene.auto_koda_ipp
 
     del bpy.types.Scene.auto_koda_jba_index
     del bpy.types.Scene.auto_koda_jba_files

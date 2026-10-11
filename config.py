@@ -10,6 +10,10 @@ GARMENT_HUE_SUBPATH = os.path.join("art", "dynamic", "garmenthue")
 # material-by-name bridges call into.
 EXTERNAL_SWTOR_IO_ADDON_MODULE = "swtor_io_tools"
 
+# Body types substituted for '[bt]' in model paths by the ipp importer.
+BODY_TYPES = ("bma", "bmn", "bmf", "bms", "bfa", "bfn", "bfb", "bfs")
+DEFAULT_BODY_TYPE = "bmn"
+
 KODA_NODE_NAMES = {
     "EYE"       : "CaptnKoda SWTOR - Eye Shader",
     "GARMENT"   : "CaptnKoda SWTOR - Garment Shader",

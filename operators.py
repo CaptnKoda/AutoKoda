@@ -268,3 +268,61 @@ class Auto_Koda_OT_ImportJBA(bpy.types.Operator):
 
         return {'CANCELLED'}
     # Example: execute(context) -> {'FINISHED'}  (reports "Imported 'run_fwd.jba' onto 'Armature'")
+
+class Auto_Koda_OT_ImportIpp(bpy.types.Operator):
+    bl_idname = "autokoda.import_ipp"
+    bl_label = "Import Item Appearance"
+    bl_description = "Import every .gr2 model used by the entered item appearance (ipp)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.scene.auto_koda_ipp.strip())
+    # Example: poll(context) -> True  (an ipp has been entered)
+
+    def execute(self, context):
+        from . import ipp_resolver
+
+        resources_path = helpers.get_resources_folder_path()
+        if not resources_path:
+            self.report({'ERROR'}, "TOR resources folder not set or invalid")
+            return {'CANCELLED'}
+
+        ipp = context.scene.auto_koda_ipp.strip()
+        try:
+            resolved = ipp_resolver.resolve_ipp(resources_path, ipp, context.scene.auto_koda_body_type)
+        except ipp_resolver.IppResolveError as e:
+            self.report({'ERROR'}, str(e))
+            return {'CANCELLED'}
+        except Exception as e:
+            self.report({'ERROR'}, f"Could not resolve '{ipp}': {e}")
+            return {'CANCELLED'}
+
+        for path in resolved["missing"]:
+            print(f"[Auto Koda] Missing model for '{ipp}': {path}")
+        for mat_path in resolved["materials"]:
+            print(f"[Auto Koda] '{ipp}' uses material {mat_path}")
+
+        if not resolved["gr2_paths"]:
+            self.report({'ERROR'}, f"No .gr2 files found on disk for '{resolved['art_name']}'")
+            return {'CANCELLED'}
+
+        imported, error = helpers.import_gr2_files(context, resolved["gr2_paths"])
+        if error:
+            self.report({'ERROR'}, error)
+            return {'CANCELLED'}
+
+        for obj in context.selected_objects:
+            obj.select_set(False)
+        for obj in imported:
+            obj.select_set(True)
+        if imported:
+            context.view_layer.objects.active = imported[0]
+
+        message = f"Imported {len(imported)} object(s) for '{resolved['art_name']}'"
+        if resolved["missing"]:
+            self.report({'WARNING'}, f"{message} - {len(resolved['missing'])} model(s) missing (see console)")
+        else:
+            self.report({'INFO'}, message)
+        return {'FINISHED'}
+    # Example: execute(context) -> {'FINISHED'}  (reports "Imported 2 object(s) for 'chest_tight_med_ge_a15'")

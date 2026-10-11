@@ -10,8 +10,15 @@ def link_material_with_koda_group(koda_group_name):
         print("[Auto Koda] Shaders.blend path invalid or not set.")
         return None
 
+    # Template materials are named after the Koda group they hold, so link
+    # just that one rather than every material (and all their node groups)
+    # in Shaders.blend. A custom Shaders.blend with different material
+    # names falls back to linking everything and searching below.
     with bpy.data.libraries.load(shaders_blend_path, link=True) as (data_from, data_to):
-        data_to.materials = data_from.materials
+        if koda_group_name in data_from.materials:
+            data_to.materials = [koda_group_name]
+        else:
+            data_to.materials = data_from.materials
 
     for mat in bpy.data.materials:
         if mat.library is None:
