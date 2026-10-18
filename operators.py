@@ -4,7 +4,7 @@ from . import animations, garment_hue, ipp_resolver
 from .prefs import get_resources_folder_path
 from .conversion import process_object
 from .overrides import run_override_sync
-from .mesh_utils import toggle_subsurf_viewport_display, prepare_meshes
+from .mesh_utils import toggle_subsurf_viewport_display, prepare_meshes, assign_material_name
 from .garment_hue_xml import apply_palette_to_objects
 from .swtor_io_bridge import build_named_materials_for_objects, import_gr2_files, import_jba_onto_active_armature
 
@@ -279,8 +279,8 @@ class Auto_Koda_OT_ImportIpp(bpy.types.Operator):
 
         for path in resolved["missing"]:
             print(f"[Auto Koda] Missing model for '{ipp}': {path}")
-        for mat_path in resolved["materials"]:
-            print(f"[Auto Koda] '{ipp}' uses material {mat_path}")
+        for mat_name in resolved["materials"]:
+            print(f"[Auto Koda] '{ipp}' uses material {mat_name}")
         return resolved
     # Example: _resolve(context, "ipp.class.spy.quest.tdps2.t1x1.chest") -> {"slot": "chest", "gr2_paths": [...], ...}
 
@@ -298,6 +298,9 @@ class Auto_Koda_OT_ImportIpp(bpy.types.Operator):
         if error:
             self.report({'ERROR'}, error)
             return {'CANCELLED'}
+
+        if resolved["materials"]:
+            assign_material_name(imported, resolved["materials"][0])
 
         _select_only(context, imported)
 

@@ -129,6 +129,14 @@ def _model_game_paths(asset, ids, body_type):
 # Example: _model_game_paths(asset, ids, "bmn") -> ["/art/dynamic/chest/model/chest_tight_bmn_archetype.gr2", ...]
 
 
+def _material_name(game_path, body_type):
+    """'/art/shaders/materials/x_[gen].mat' -> 'x_m' / 'x_f', matching the
+    real per-gender .mat file for `body_type` ('bm*' male, 'bf*' female)."""
+    name = os.path.splitext(game_path.rsplit("/", 1)[-1])[0]
+    return name.replace("[gen]", body_type[1])
+# Example: _material_name("/art/shaders/materials/chest_tight_med_ge_a15mercenary05_[gen].mat", "bmn") -> "chest_tight_med_ge_a15mercenary05_m"
+
+
 def resolve_ipp(resources_path, ipp, body_type):
     """Resolves `ipp` to its models for `body_type` (e.g. 'bmn').
 
@@ -137,7 +145,8 @@ def resolve_ipp(resources_path, ipp, body_type):
       art_name  -- the asset's ArtName
       gr2_paths -- absolute .gr2 paths that exist on disk (base model first)
       missing   -- absolute .gr2 paths that should exist but don't
-      materials -- .mat paths the ipp selects (not applied here)
+      materials -- names of the materials the ipp selects, '[gen]' resolved
+                   for `body_type` (no extension)
     """
     ids = extract_art_ids(find_ipp_payload(resources_path, ipp))
 
@@ -151,7 +160,7 @@ def resolve_ipp(resources_path, ipp, body_type):
         (gr2_paths if os.path.isfile(path) else missing).append(path)
 
     materials = [
-        m.get("filename") for m in asset.findall("Materials/Material")
+        _material_name(m.get("filename"), body_type) for m in asset.findall("Materials/Material")
         if int(m.get("id", -1)) in ids
     ]
 

@@ -81,3 +81,40 @@ def prepare_meshes(objects):
 
     return len(objects)
 # Example: prepare_meshes([body, head, cape]) -> 3
+
+
+def assign_material_name(objects, name):
+    """Gives every material slot on the given mesh objects a material named
+    `name`. Reuses an existing material of that name if there is one;
+    otherwise renames the slot's current material (or a copy of it, if
+    something else also uses it). Materials left unused by the swap are
+    deleted."""
+    target = bpy.data.materials.get(name)
+    replaced = set()
+    assigned = 0
+
+    for obj in objects:
+        if obj.type != 'MESH':
+            continue
+
+        for slot in obj.material_slots:
+            if target is None:
+                mat = slot.material
+                if mat is None:
+                    mat = bpy.data.materials.new(name)
+                elif mat.users > 1:
+                    mat = mat.copy()
+                mat.name = name
+                target = mat
+
+            if slot.material and slot.material != target:
+                replaced.add(slot.material)
+            slot.material = target
+            assigned += 1
+
+    for mat in replaced:
+        if mat.users == 0:
+            bpy.data.materials.remove(mat)
+
+    return assigned
+# Example: assign_material_name([archetype, chest], "chest_tight_med_ge_a15mercenary05_m") -> 2
