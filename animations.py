@@ -23,7 +23,7 @@ import os
 import bpy  # type: ignore
 from . import config
 from .prefs import get_anim_root_path
-from .list_utils import list_files, rebuild_name_collection, active_item_name
+from .list_utils import list_files, existing_file_in, rebuild_name_collection, active_item_name
 
 
 class Auto_Koda_JBAItem(bpy.types.PropertyGroup):
@@ -47,7 +47,7 @@ def list_jba_subfolders(root_path):
     tree -- not just skipped from the results, but never walked into at
     all, since one of them ('placeable') is large enough to be the main
     cost of this scan."""
-    if not root_path or not os.path.isdir(root_path):
+    if not root_path:
         return []
 
     qualifying = []
@@ -57,9 +57,6 @@ def list_jba_subfolders(root_path):
                 d for d in dirnames
                 if d.lower() not in config.IGNORED_JBA_FOLDER_NAMES
             ]
-
-            if os.path.basename(dirpath).lower() in config.IGNORED_JBA_FOLDER_NAMES:
-                continue
 
             if any(f.lower().endswith(".jba") for f in filenames):
                 qualifying.append(os.path.relpath(dirpath, root_path))
@@ -78,17 +75,8 @@ def refresh_jba_folder_list(scene):
     old dynamic-Enum approach, since prop_search reads the collection
     directly without calling back into Python per keystroke. This is
     what actually fixed the lag, not caching."""
-    root = get_anim_root_path()
-    folders = list_jba_subfolders(root) if root else []
-
+    folders = list_jba_subfolders(get_anim_root_path())
     rebuild_name_collection(scene.auto_koda_jba_folders, folders)
-
-
-def list_jba_files(folder_path):
-    """Lists .jba files directly inside `folder_path` (an absolute
-    path -- typically the anim root joined with a selected subfolder)."""
-    return list_files(folder_path, ".jba", label="JBA folder")
-# Example: list_jba_files("/home/koda/SWTOR/resources/anim/humanoid/bfa") -> ["idle.jba", "run_fwd.jba"]
 
 
 def get_selected_jba_folder_path(scene):
@@ -102,7 +90,7 @@ def get_selected_jba_folder_path(scene):
     if not root:
         return None
 
-    rel = getattr(scene, "auto_koda_jba_folder_name", "").strip()
+    rel = scene.auto_koda_jba_folder_name.strip()
     if not rel or rel not in scene.auto_koda_jba_folders:
         return None
 
@@ -114,9 +102,7 @@ def refresh_jba_collection(scene):
     """Rebuilds scene.auto_koda_jba_files from whichever anim subfolder
     is currently selected. Always fully rebuilds -- cheap, and avoids
     stale-item edge cases from a 'skip if unchanged' shortcut."""
-    folder_path = get_selected_jba_folder_path(scene)
-    files = list_jba_files(folder_path) if folder_path else []
-
+    files = list_files(get_selected_jba_folder_path(scene), ".jba", label="JBA folder")
     rebuild_name_collection(scene.auto_koda_jba_files, files)
 
 
@@ -138,15 +124,7 @@ def get_jba_filepath(scene, filename):
     currently selected anim subfolder, verifying it still exists on
     disk (the folder could have changed on-disk since the list was
     last refreshed)."""
-    folder_path = get_selected_jba_folder_path(scene)
-    if not folder_path:
-        return None
-
-    filepath = os.path.join(folder_path, filename)
-    if not os.path.isfile(filepath):
-        print(f"[Auto Koda] JBA file not found: {filepath}")
-        return None
-    return filepath
+    return existing_file_in(get_selected_jba_folder_path(scene), filename, "JBA file")
 # Example: get_jba_filepath(scene, "run_fwd.jba") -> "/home/koda/SWTOR/resources/anim/humanoid/bfa/run_fwd.jba"
 
 

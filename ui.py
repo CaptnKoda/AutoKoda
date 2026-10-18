@@ -1,5 +1,7 @@
 import bpy # type: ignore
-from . import config, operators, helpers
+from . import config, operators
+from .prefs import get_shaders_blend_path, get_resources_folder_path, get_anim_root_path
+from .garment_hue import color_sort_key
 from bpy.props import StringProperty # type: ignore
 from bpy.types import AddonPreferences # type: ignore
 
@@ -19,64 +21,62 @@ def _draw_status_box(layout, message, button_text, path=None, alert=False):
     ).module = __package__
 
 
-class Auto_Koda_PT_Settings(bpy.types.Panel):
-    bl_options = {'DEFAULT_CLOSED'}
-    bl_label = "Settings"
-    bl_idname = "VIEW3D_PT_auto_koda_settings"
+def _draw_folder_status(layout, path, label):
+    """Status box for a folder preference: an alert if unset/invalid,
+    otherwise the configured path."""
+    if not path:
+        _draw_status_box(layout, f"{label} not set or invalid", f"Set {label}", alert=True)
+    else:
+        _draw_status_box(layout, f"{label} configured", f"Change {label}", path=path)
+
+
+def _draw_missing_pref_warning(layout, label):
+    row = layout.row()
+    row.alert = True
+    row.label(text=f"Set the {label} in Add-on Preferences first", icon='ERROR')
+
+
+class _AutoKodaView3DPanel:
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Auto Koda"
 
+
+class Auto_Koda_PT_Settings(_AutoKodaView3DPanel, bpy.types.Panel):
+    bl_options = {'DEFAULT_CLOSED'}
+    bl_label = "Settings"
+    bl_idname = "VIEW3D_PT_auto_koda_settings"
+
     def draw(self, context):
         layout = self.layout
 
-        shaders_blend_loc = helpers.get_shaders_blend_path()
-        if not shaders_blend_loc or ".blend" not in shaders_blend_loc:
-            _draw_status_box(layout, f"Shaders.blend path not set or invalid: {shaders_blend_loc}",
-                             "Set Shaders.blend", alert=True)
-        elif shaders_blend_loc == config.DEFAULT_SHADERS:
+        shaders_blend_loc = get_shaders_blend_path()
+        if shaders_blend_loc == config.DEFAULT_SHADERS:
             _draw_status_box(layout, "Using default Shaders.blend", "Set Custom Shaders.blend")
         else:
             _draw_status_box(layout, "Using custom Shaders.blend", "Change Custom Shaders.blend",
                              path=shaders_blend_loc)
 
-        resources_path = helpers.get_resources_folder_path()
-        if not resources_path:
-            _draw_status_box(layout, "TOR resources folder not set or invalid", "Set Resources Folder", alert=True)
-        else:
-            _draw_status_box(layout, "Resources folder configured", "Change Resources Folder", path=resources_path)
+        _draw_folder_status(layout, get_resources_folder_path(), "Resources Folder")
+        _draw_folder_status(layout, get_anim_root_path(), "Anim Folder")
 
-        anim_root_path = helpers.get_anim_root_path()
-        if not anim_root_path:
-            _draw_status_box(layout, "Anim folder not set or invalid", "Set Anim Folder", alert=True)
-        else:
-            _draw_status_box(layout, "Anim folder configured", "Change Anim Folder", path=anim_root_path)
-
-class Auto_Koda_PT_Process_Materials(bpy.types.Panel):
+class Auto_Koda_PT_Process_Materials(_AutoKodaView3DPanel, bpy.types.Panel):
     bl_label = "Process Materials"
     bl_idname = "VIEW3D_PT_auto_koda_process"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "Auto Koda"
 
     def draw(self, context):
         layout = self.layout
         layout.operator(operators.Auto_Koda_Crunch_Selected.bl_idname, text="Auto Crunch (Selected)", icon='MODIFIER')
 
-class Auto_Koda_PT_Import_Item(bpy.types.Panel):
+class Auto_Koda_PT_Import_Item(_AutoKodaView3DPanel, bpy.types.Panel):
     bl_label = "Import Item"
     bl_idname = "VIEW3D_PT_auto_koda_import_item"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "Auto Koda"
 
     def draw(self, context):
         layout = self.layout
 
-        if not helpers.get_resources_folder_path():
-            row = layout.row()
-            row.alert = True
-            row.label(text="Set the Resources Folder in Add-on Preferences first", icon='ERROR')
+        if not get_resources_folder_path():
+            _draw_missing_pref_warning(layout, "Resources Folder")
 
         row = layout.row(align=True)
         row.prop(context.scene, "auto_koda_ipp", text="", icon='MOD_CLOTH')
@@ -104,9 +104,12 @@ class Auto_Koda_PT_Material_Overrides(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        layout.operator("autokoda.sync_override", text="Sync Override")
-        layout.operator("autokoda.link_override", text="Link Override")
-        layout.operator("autokoda.sync_link_override", text="Sync/Link Override")
+        for op in (
+            operators.Auto_Koda_OT_SyncOverride,
+            operators.Auto_Koda_OT_LinkOverride,
+            operators.Auto_Koda_OT_SyncLinkOverride,
+        ):
+            layout.operator(op.bl_idname, text=op.bl_label)
 
 class Auto_Koda_Preferences(AddonPreferences):
     bl_idname = __package__
@@ -143,12 +146,9 @@ class Auto_Koda_Preferences(AddonPreferences):
         layout.label(text="Select your SWTOR 'anim' folder below")
         layout.prop(self, "animRootPath", text="Anim Folder")
 
-class Auto_Koda_PT_Utilities(bpy.types.Panel):
+class Auto_Koda_PT_Utilities(_AutoKodaView3DPanel, bpy.types.Panel):
     bl_label = "Utilities"
     bl_idname = "VIEW3D_PT_auto_koda_utilities"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "Auto Koda"
 
     def draw(self, context):
         layout = self.layout
@@ -163,9 +163,16 @@ class Auto_Koda_PT_Utilities(bpy.types.Panel):
             text="Mesh Preparation",
             icon='MESH_DATA'
         )
-        layout.separator()
 
-        layout.label(text="Garment Hue")
+class Auto_Koda_PT_Garment_Hue(_AutoKodaView3DPanel, bpy.types.Panel):
+    bl_label = "Garment Hue"
+    bl_idname = "VIEW3D_PT_auto_koda_garment_hue"
+
+    def draw(self, context):
+        layout = self.layout
+
+        if not get_resources_folder_path():
+            _draw_missing_pref_warning(layout, "Resources Folder")
 
         row = layout.row(align=True)
         row.prop(context.scene, "auto_koda_garment_hue_filter", text="", icon='VIEWZOOM')
@@ -193,26 +200,16 @@ class AUTOKODA_UL_garment_hue(bpy.types.UIList):
         row.label(text=item.name)
 
     def filter_items(self, context, data, propname):
-        from .garment_hue import _color_sort_key
-
         items = getattr(data, propname)
-        filter_text = getattr(data, "auto_koda_garment_hue_filter", "").lower()
+        filter_text = data.auto_koda_garment_hue_filter.lower()
 
-        if filter_text:
-            flt_flags = [
-                self.bitflag_filter_item if filter_text in item.name.lower() else 0
-                for item in items
-            ]
-        else:
-            flt_flags = [self.bitflag_filter_item] * len(items)
+        flt_flags = [
+            self.bitflag_filter_item if filter_text in item.name.lower() else 0
+            for item in items
+        ]
 
-        sort_by_color = getattr(data, "auto_koda_garment_hue_sort_by_color", False)
-
-        if sort_by_color:
-            keyed = sorted(
-                range(len(items)),
-                key=lambda i: _color_sort_key(items[i].color)
-            )
+        if data.auto_koda_garment_hue_sort_by_color:
+            keyed = sorted(range(len(items)), key=lambda i: color_sort_key(items[i].color))
             flt_neworder = [0] * len(items)
             for new_pos, original_index in enumerate(keyed):
                 flt_neworder[original_index] = new_pos
@@ -222,20 +219,15 @@ class AUTOKODA_UL_garment_hue(bpy.types.UIList):
         return flt_flags, flt_neworder
     # Example: filter_items(context, scene, "auto_koda_garment_hue_files") -> ([1073741824, 0, 1073741824], [2, 0, 1])
 
-class Auto_Koda_PT_Animations(bpy.types.Panel):
+class Auto_Koda_PT_Animations(_AutoKodaView3DPanel, bpy.types.Panel):
     bl_label = "Animations"
     bl_idname = "VIEW3D_PT_auto_koda_animations"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "Auto Koda"
 
     def draw(self, context):
         layout = self.layout
 
-        if not helpers.get_anim_root_path():
-            row = layout.row()
-            row.alert = True
-            row.label(text="Set the Anim Folder in Add-on Preferences first", icon='ERROR')
+        if not get_anim_root_path():
+            _draw_missing_pref_warning(layout, "Anim Folder")
 
         layout.prop_search(
             context.scene, "auto_koda_jba_folder_name",

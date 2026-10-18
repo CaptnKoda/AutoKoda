@@ -1,11 +1,10 @@
 from . import config
-from .material_io import link_material_with_koda_group, assign_linked_material, finalize_material_swap
-from .node_utils import find_group_node, is_koda_group_node
-from .hero_engine import find_atroxa_group_node
+from .material_io import link_material_with_koda_group, copy_matching_node_inputs, finalize_material_swap
+from .node_utils import iter_node_materials, find_group_node, find_atroxa_group_node, is_koda_group_node
 from .node_group_transfer import transfer_group_inputs
 
 
-def _process_atroxa_material(obj, mat, slot_index, atroxa_node, key):
+def _process_atroxa_material(mat, slot_index, atroxa_node, key):
     koda_shader_name = config.KODA_NODE_NAMES.get(key)
     if not koda_shader_name:
         print(f"[Auto Koda] No Koda mapping for '{key}' on '{mat.name}'")
@@ -23,22 +22,16 @@ def _process_atroxa_material(obj, mat, slot_index, atroxa_node, key):
     values_copied, images_copied = transfer_group_inputs(atroxa_node, koda_node)
     print(f"[Auto Koda] '{mat.name}': transferred {values_copied} value(s), {images_copied} image(s)")
 
-    assign_linked_material(obj, new_mat, target_slot_index=slot_index, preserve_inputs=True)
-    finalize_material_swap(mat, new_mat, slot_index, koda_shader_name, log_label="Atroxa material")
+    copy_matching_node_inputs(mat, new_mat)
+    finalize_material_swap(mat, new_mat, slot_index, koda_shader_name)
 
 
 def process_object(obj):
-    if not obj or obj.type != 'MESH':
-        return
-
-    for slot_index, slot in enumerate(obj.material_slots):
-        mat = slot.material
-        if not mat or not mat.use_nodes:
-            continue
-
+    """Swaps every Atroxa SWTOR material on `obj` for its Koda equivalent."""
+    for slot_index, mat in iter_node_materials(obj):
         if any(is_koda_group_node(node) for node in mat.node_tree.nodes):
             continue
 
         atroxa_node, key = find_atroxa_group_node(mat.node_tree)
         if atroxa_node:
-            _process_atroxa_material(obj, mat, slot_index, atroxa_node, key)
+            _process_atroxa_material(mat, slot_index, atroxa_node, key)

@@ -1,6 +1,6 @@
 import bpy # type: ignore
 from . import config
-from .node_utils import find_group_node, get_group_output_node
+from .node_utils import iter_node_materials, find_group_node, get_group_output_node
 
 
 def sync_master_inputs_to_override(master_node, override_tree):
@@ -28,26 +28,32 @@ def sync_master_inputs_to_override(master_node, override_tree):
 # Example: sync_master_inputs_to_override(master_node, override_node.node_tree) -> 22
 
 
-def link_override_to_master(material, master_node, override_node):
-    if not material.use_nodes:
-        print(f"[ERROR] Material '{material.name}' has no node tree.")
-        return 0
-
-    nt = material.node_tree
+def link_override_to_master(node_tree, master_node, override_node):
     linked_count = 0
 
     for master_input in master_node.inputs:
         override_output = override_node.outputs.get(master_input.name)
         if override_output:
             try:
-                nt.links.new(override_output, master_input)
+                node_tree.links.new(override_output, master_input)
                 print(f"[LINK] {master_input.name}")
                 linked_count += 1
             except RuntimeError:
                 print(f"[FAIL LINK] {master_input.name} - incompatible socket type")
 
     return linked_count
-# Example: link_override_to_master(mat, master_node, override_node) -> 22
+# Example: link_override_to_master(mat.node_tree, master_node, override_node) -> 22
+
+
+def _iter_override_pairs(node_tree):
+    """Yields (master_node, override_node) for every Shader_Pairs entry
+    with both nodes present in `node_tree`."""
+    for shader in config.Shader_Pairs:
+        master_node = find_group_node(node_tree, exact_name=shader["master_name"])
+        override_node = find_group_node(node_tree, suffix=shader["override_suffix"])
+        if master_node and override_node:
+            yield master_node, override_node
+# Example: list(_iter_override_pairs(mat.node_tree)) -> [(<ShaderNodeGroup "Group">, <ShaderNodeGroup "Group.001">)]
 
 
 def run_override_sync(do_sync_values=True, do_link_override=False):
@@ -61,19 +67,8 @@ def run_override_sync(do_sync_values=True, do_link_override=False):
     total_copied = 0
     total_links = 0
 
-    for slot in obj.material_slots:
-        mat = slot.material
-        if not mat or not mat.use_nodes:
-            continue
-        nt = mat.node_tree
-
-        for shader in config.Shader_Pairs:
-            master_node = find_group_node(nt, exact_name=shader["master_name"])
-            override_node = find_group_node(nt, suffix=shader["override_suffix"])
-
-            if not master_node or not override_node:
-                continue
-
+    for _, mat in iter_node_materials(obj):
+        for master_node, override_node in _iter_override_pairs(mat.node_tree):
             print(f"\n● Material: {mat.name}")
             print(f"  Master:   {master_node.node_tree.name}")
             print(f"  Override: {override_node.node_tree.name}")
@@ -84,7 +79,7 @@ def run_override_sync(do_sync_values=True, do_link_override=False):
                 print(f"  → {copied} value(s) copied")
 
             if do_link_override:
-                links = link_override_to_master(mat, master_node, override_node)
+                links = link_override_to_master(mat.node_tree, master_node, override_node)
                 total_links += links
                 print(f"  → {links} link(s) created")
 

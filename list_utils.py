@@ -6,8 +6,12 @@ import os
 def list_files(folder_path, extension=None, label="folder"):
     """Lists files directly inside `folder_path`, sorted, optionally
     filtered to a case-insensitive `extension` (e.g. ".jba"). Returns []
-    if the folder is missing or unreadable."""
-    if not folder_path or not os.path.isdir(folder_path):
+    if the folder is unset, missing or unreadable."""
+    if not folder_path:
+        return []
+
+    if not os.path.isdir(folder_path):
+        print(f"[Auto Koda] {label} not found: {folder_path}")
         return []
 
     try:
@@ -20,6 +24,21 @@ def list_files(folder_path, extension=None, label="folder"):
         print(f"[Auto Koda] Failed to list {label} '{folder_path}': {e}")
         return []
 # Example: list_files("/anim/humanoid/bfa", ".jba") -> ["idle.jba", "run_fwd.jba", "walk_fwd.jba"]
+
+
+def existing_file_in(folder_path, filename, label="file"):
+    """Joins `folder_path` and a filename picked from a list, verifying it
+    still exists on disk (the folder may have changed since the list was
+    last refreshed). Returns the path, or None."""
+    if not folder_path:
+        return None
+
+    filepath = os.path.join(folder_path, filename)
+    if not os.path.isfile(filepath):
+        print(f"[Auto Koda] {label} not found: {filepath}")
+        return None
+    return filepath
+# Example: existing_file_in("/anim/humanoid/bfa", "run_fwd.jba", "JBA file") -> "/anim/humanoid/bfa/run_fwd.jba"
 
 
 def rebuild_name_collection(collection, names):

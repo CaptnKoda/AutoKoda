@@ -1,38 +1,33 @@
 import bpy # type: ignore
-from . import helpers
 from bpy.props import BoolProperty, FloatProperty  # type: ignore
+from . import animations, garment_hue, ipp_resolver
+from .prefs import get_resources_folder_path
+from .conversion import process_object
+from .overrides import run_override_sync
+from .mesh_utils import toggle_subsurf_viewport_display, prepare_meshes
+from .garment_hue_xml import apply_palette_to_objects
+from .swtor_io_bridge import build_named_materials_for_objects, import_gr2_files, import_jba_onto_active_armature
 
 
-def _selected_meshes(context):
-    return [o for o in context.selected_objects if o.type == 'MESH']
-# Example: _selected_meshes(context) -> [bpy.data.objects["Body"], bpy.data.objects["Head"]]
+def _require_selected_meshes(operator, context):
+    """Returns the selected mesh objects, or reports a warning on
+    `operator` and returns [] if there are none."""
+    objects = [o for o in context.selected_objects if o.type == 'MESH']
+    if not objects:
+        operator.report({'WARNING'}, "No mesh objects selected")
+    return objects
+# Example: _require_selected_meshes(self, context) -> [bpy.data.objects["Body"], bpy.data.objects["Head"]]
 
 
-def _shaders_path_missing(operator):
-    """Reports an error on `operator` and returns True if no Shaders.blend
-    path is available."""
-    if helpers.get_shaders_blend_path():
-        return False
-    operator.report({'ERROR'}, "Shaders Blend file path not set in preferences!")
-    return True
-# Example: _shaders_path_missing(self) -> False
+def _select_only(context, objects):
+    """Makes `objects` the selection, with the first one active."""
+    for obj in context.selected_objects:
+        obj.select_set(False)
+    for obj in objects:
+        obj.select_set(True)
+    if objects:
+        context.view_layer.objects.active = objects[0]
 
-
-class Auto_Koda_Selected(bpy.types.Operator):
-    bl_idname = "autokoda.convert_selected"
-    bl_label = "Auto Koda"
-    bl_description = "Convert the shader of the selected object to a Koda shader"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self, context):
-        if _shaders_path_missing(self):
-            return {'CANCELLED'}
-
-        for obj in _selected_meshes(context):
-            helpers.process_object(obj)
-
-        return {'FINISHED'}
-    # Example: execute(context) -> {'FINISHED'}
 
 class Auto_Koda_Crunch_Selected(bpy.types.Operator):
     bl_idname = "autokoda.crunch_selected"
@@ -41,20 +36,16 @@ class Auto_Koda_Crunch_Selected(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        if _shaders_path_missing(self):
-            return {'CANCELLED'}
-
-        objects = _selected_meshes(context)
+        objects = _require_selected_meshes(self, context)
         if not objects:
-            self.report({'WARNING'}, "No mesh objects selected")
             return {'CANCELLED'}
 
-        built, errors = helpers.build_named_materials_for_objects(objects)
+        built, errors = build_named_materials_for_objects(objects)
         for err in errors:
             print(f"[Auto Koda] {err}")
 
         for obj in objects:
-            helpers.process_object(obj)
+            process_object(obj)
 
         if errors:
             self.report(
@@ -78,7 +69,7 @@ class _OverrideSyncBase:
     do_link_override = False
 
     def execute(self, context):
-        helpers.run_override_sync(
+        run_override_sync(
             do_sync_values=self.do_sync_values,
             do_link_override=self.do_link_override,
         )
@@ -112,12 +103,11 @@ class Auto_Koda_OT_ToggleSubsurfViewport(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        objects = context.selected_objects
+        objects = _require_selected_meshes(self, context)
         if not objects:
-            self.report({'WARNING'}, "No objects selected")
             return {'CANCELLED'}
 
-        count = helpers.toggle_subsurf_viewport_display(objects)
+        count = toggle_subsurf_viewport_display(objects)
         if count == 0:
             self.report({'WARNING'}, "No Subdivision Surface modifiers found on selection")
             return {'CANCELLED'}
@@ -133,12 +123,11 @@ class Auto_Koda_OT_PrepareMeshes(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        objects = _selected_meshes(context)
+        objects = _require_selected_meshes(self, context)
         if not objects:
-            self.report({'WARNING'}, "No mesh objects selected")
             return {'CANCELLED'}
 
-        count = helpers.prepare_meshes(objects)
+        count = prepare_meshes(objects)
         self.report({'INFO'}, f"Prepared {count} mesh(es)")
         return {'FINISHED'}
     # Example: execute(context) -> {'FINISHED'}  (reports "Prepared 3 mesh(es)")
@@ -150,26 +139,21 @@ class _GarmentHueApplyBase:
     palette_slot = 1
 
     def execute(self, context):
-        from . import garment_hue, garment_hue_xml
-
         filename = garment_hue.get_selected_filename(context.scene)
         if not filename:
             self.report({'WARNING'}, "No garment hue file selected")
             return {'CANCELLED'}
 
-        objects = _selected_meshes(context)
+        objects = _require_selected_meshes(self, context)
         if not objects:
-            self.report({'WARNING'}, "No mesh objects selected")
             return {'CANCELLED'}
 
-        files_applied, nodes_updated = garment_hue_xml.apply_garment_hue_to_objects(
-            objects, filename, slot=self.palette_slot
-        )
-
-        if not files_applied:
+        values = garment_hue.load_garment_hue_values(filename)
+        if not values:
             self.report({'ERROR'}, f"Could not read '{filename}' - check console")
             return {'CANCELLED'}
 
+        nodes_updated = apply_palette_to_objects(objects, values, slot=self.palette_slot)
         self.report({'INFO'}, f"Applied '{filename}' ({self.bl_label}) to {nodes_updated} node(s)")
         return {'FINISHED'}
     # Example: execute(context) -> {'FINISHED'}  (reports "Applied 'garmenthue_red_light.xml' (Primary) to 4 node(s)")
@@ -195,7 +179,6 @@ class Auto_Koda_OT_RefreshGarmentHueList(bpy.types.Operator):
     bl_options = {'INTERNAL'}
 
     def execute(self, context):
-        from . import garment_hue
         garment_hue.refresh_garment_hue_collection(context.scene)
         return {'FINISHED'}
     # Example: execute(context) -> {'FINISHED'}
@@ -207,7 +190,6 @@ class Auto_Koda_OT_RefreshJBAList(bpy.types.Operator):
     bl_options = {'INTERNAL'}
 
     def execute(self, context):
-        from . import animations
         animations.refresh_jba_lists(context.scene)
         return {'FINISHED'}
     # Example: execute(context) -> {'FINISHED'}
@@ -219,8 +201,8 @@ class Auto_Koda_OT_ImportJBA(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     # Same properties import_jba.py's build() reads off the operator it's
-    # given -- see jba_bridge.py's docstring for why these live here
-    # rather than being pulled from swtor_io_tools' own preferences.
+    # given -- see import_jba_onto_active_armature() for why these live
+    # here rather than being pulled from swtor_io_tools' own preferences.
     ignore_facial_bones: BoolProperty(
         name="Ignore Facial Transl.",
         description="Ignores the data in the facial bones' translation keyframes and only uses their rotation keyframes",
@@ -250,8 +232,6 @@ class Auto_Koda_OT_ImportJBA(bpy.types.Operator):
     # Example: poll(context) -> True  (active object is an armature)
 
     def execute(self, context):
-        from . import animations, jba_bridge
-
         filename = animations.get_selected_jba_filename(context.scene)
         if not filename:
             self.report({'WARNING'}, "No animation selected")
@@ -262,7 +242,7 @@ class Auto_Koda_OT_ImportJBA(bpy.types.Operator):
             self.report({'ERROR'}, "Selected .jba file no longer exists - try Refresh")
             return {'CANCELLED'}
 
-        if jba_bridge.import_jba_onto_active_armature(self, context, filepath):
+        if import_jba_onto_active_armature(self, context, filepath):
             self.report({'INFO'}, f"Imported '{filename}' onto '{context.active_object.name}'")
             return {'FINISHED'}
 
@@ -280,44 +260,46 @@ class Auto_Koda_OT_ImportIpp(bpy.types.Operator):
         return bool(context.scene.auto_koda_ipp.strip())
     # Example: poll(context) -> True  (an ipp has been entered)
 
-    def execute(self, context):
-        from . import ipp_resolver
-
-        resources_path = helpers.get_resources_folder_path()
+    def _resolve(self, context, ipp):
+        """Resolves `ipp` via ipp_resolver, logging missing models and
+        materials. Reports and returns None on failure."""
+        resources_path = get_resources_folder_path()
         if not resources_path:
             self.report({'ERROR'}, "TOR resources folder not set or invalid")
-            return {'CANCELLED'}
+            return None
 
-        ipp = context.scene.auto_koda_ipp.strip()
         try:
             resolved = ipp_resolver.resolve_ipp(resources_path, ipp, context.scene.auto_koda_body_type)
         except ipp_resolver.IppResolveError as e:
             self.report({'ERROR'}, str(e))
-            return {'CANCELLED'}
+            return None
         except Exception as e:
             self.report({'ERROR'}, f"Could not resolve '{ipp}': {e}")
-            return {'CANCELLED'}
+            return None
 
         for path in resolved["missing"]:
             print(f"[Auto Koda] Missing model for '{ipp}': {path}")
         for mat_path in resolved["materials"]:
             print(f"[Auto Koda] '{ipp}' uses material {mat_path}")
+        return resolved
+    # Example: _resolve(context, "ipp.class.spy.quest.tdps2.t1x1.chest") -> {"slot": "chest", "gr2_paths": [...], ...}
+
+    def execute(self, context):
+        ipp = context.scene.auto_koda_ipp.strip()
+        resolved = self._resolve(context, ipp)
+        if not resolved:
+            return {'CANCELLED'}
 
         if not resolved["gr2_paths"]:
             self.report({'ERROR'}, f"No .gr2 files found on disk for '{resolved['art_name']}'")
             return {'CANCELLED'}
 
-        imported, error = helpers.import_gr2_files(context, resolved["gr2_paths"])
+        imported, error = import_gr2_files(context, resolved["gr2_paths"])
         if error:
             self.report({'ERROR'}, error)
             return {'CANCELLED'}
 
-        for obj in context.selected_objects:
-            obj.select_set(False)
-        for obj in imported:
-            obj.select_set(True)
-        if imported:
-            context.view_layer.objects.active = imported[0]
+        _select_only(context, imported)
 
         message = f"Imported {len(imported)} object(s) for '{resolved['art_name']}'"
         if resolved["missing"]:

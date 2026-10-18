@@ -40,6 +40,23 @@ class IppResolveError(Exception):
     pass
 
 
+def _node_payload(data, name_pos, needle):
+    """Returns the payload of the node whose name starts at `name_pos`, or
+    None if that position isn't a real node header (e.g. another node
+    merely referencing this name)."""
+    node_start = name_pos - _NODE_NAME_OFFSET
+    if node_start < 0:
+        return None
+
+    size = struct.unpack_from("<I", data, node_start + _NODE_SIZE_OFFSET)[0]
+    data_offset = struct.unpack_from("<H", data, node_start + _NODE_DATA_OFFSET)[0]
+    if not (_NODE_NAME_OFFSET + len(needle) <= data_offset < size and node_start + size <= len(data)):
+        return None
+
+    return data[node_start + data_offset:node_start + size]
+# Example: _node_payload(bucket_bytes, 1234, b"ipp.class.spy.quest.tdps2.t1x1.chest\x00") -> b"\xcc\x02\xed..."
+
+
 def find_ipp_payload(resources_path, ipp):
     """Returns the raw payload bytes of the bucket node named `ipp`, or
     raises IppResolveError if no bucket contains it."""
@@ -52,13 +69,9 @@ def find_ipp_payload(resources_path, ipp):
 
         pos = data.find(needle)
         while pos != -1:
-            node_start = pos - _NODE_NAME_OFFSET
-            if node_start >= 0:
-                size = struct.unpack_from("<I", data, node_start + _NODE_SIZE_OFFSET)[0]
-                data_offset = struct.unpack_from("<H", data, node_start + _NODE_DATA_OFFSET)[0]
-                # Only accept a real node header, not another node referencing this name
-                if _NODE_NAME_OFFSET + len(needle) <= data_offset < size and node_start + size <= len(data):
-                    return data[node_start + data_offset:node_start + size]
+            payload = _node_payload(data, pos, needle)
+            if payload is not None:
+                return payload
             pos = data.find(needle, pos + 1)
 
     raise IppResolveError(f"'{ipp}' not found in any bucket under {resources_path}")
@@ -89,6 +102,33 @@ def _resources_file(resources_path, game_path):
 # Example: _resources_file("/mnt/TOR/resources", "/art/dynamic/chest/model/a.gr2") -> "/mnt/TOR/resources/art/dynamic/chest/model/a.gr2"
 
 
+def _find_asset(resources_path, ids):
+    """Returns (slot, <Asset> element) for the first asset across
+    GARMENT_SLOTS whose ID is in `ids`, or (None, None)."""
+    for slot in GARMENT_SLOTS:
+        root = _load_slot_index(resources_path, slot)
+        if root is None:
+            continue
+
+        for asset in root.iter("Asset"):
+            asset_id = asset.findtext("ID")
+            if asset_id and int(asset_id) in ids:
+                return slot, asset
+    return None, None
+# Example: _find_asset("/mnt/TOR/resources", {1000094, 1000101}) -> ("chest", <Element 'Asset'>)
+
+
+def _model_game_paths(asset, ids, body_type):
+    """Base model plus the attachments the ipp selects (all of them if
+    none are listed), with '[bt]' swapped for `body_type`."""
+    attachments = asset.findall("Attachments/Attachment")
+    chosen = [a for a in attachments if int(a.get("id", -1)) in ids] or attachments
+
+    model_paths = [asset.findtext("BaseFile")] + [a.get("filename") for a in chosen]
+    return [p.replace("[bt]", body_type) for p in model_paths if p]
+# Example: _model_game_paths(asset, ids, "bmn") -> ["/art/dynamic/chest/model/chest_tight_bmn_archetype.gr2", ...]
+
+
 def resolve_ipp(resources_path, ipp, body_type):
     """Resolves `ipp` to its models for `body_type` (e.g. 'bmn').
 
@@ -101,40 +141,26 @@ def resolve_ipp(resources_path, ipp, body_type):
     """
     ids = extract_art_ids(find_ipp_payload(resources_path, ipp))
 
-    for slot in GARMENT_SLOTS:
-        root = _load_slot_index(resources_path, slot)
-        if root is None:
-            continue
+    slot, asset = _find_asset(resources_path, ids)
+    if asset is None:
+        raise IppResolveError(f"No art asset in {', '.join(GARMENT_SLOTS)} matches '{ipp}'")
 
-        for asset in root.iter("Asset"):
-            asset_id = asset.findtext("ID")
-            if not asset_id or int(asset_id) not in ids:
-                continue
+    gr2_paths, missing = [], []
+    for game_path in _model_game_paths(asset, ids, body_type):
+        path = _resources_file(resources_path, game_path)
+        (gr2_paths if os.path.isfile(path) else missing).append(path)
 
-            attachments = asset.findall("Attachments/Attachment")
-            chosen = [a for a in attachments if int(a.get("id", -1)) in ids] or attachments
+    materials = [
+        m.get("filename") for m in asset.findall("Materials/Material")
+        if int(m.get("id", -1)) in ids
+    ]
 
-            model_paths = [asset.findtext("BaseFile")] + [a.get("filename") for a in chosen]
-            model_paths = [p.replace("[bt]", body_type) for p in model_paths if p]
-
-            gr2_paths, missing = [], []
-            for game_path in model_paths:
-                path = _resources_file(resources_path, game_path)
-                (gr2_paths if os.path.isfile(path) else missing).append(path)
-
-            materials = [
-                m.get("filename") for m in asset.findall("Materials/Material")
-                if int(m.get("id", -1)) in ids
-            ]
-
-            return {
-                "slot": slot,
-                "art_name": asset.findtext("ArtName"),
-                "gr2_paths": gr2_paths,
-                "missing": missing,
-                "materials": materials,
-            }
-
-    raise IppResolveError(f"No art asset in {', '.join(GARMENT_SLOTS)} matches '{ipp}'")
+    return {
+        "slot": slot,
+        "art_name": asset.findtext("ArtName"),
+        "gr2_paths": gr2_paths,
+        "missing": missing,
+        "materials": materials,
+    }
 # Example: resolve_ipp(res, "ipp.class.spy.quest.tdps2.t1x1.chest", "bmn")["gr2_paths"]
 #   -> [".../chest_tight_bmn_archetype.gr2", ".../chest_tight_bmn_med_ge_a15_chest.gr2"]

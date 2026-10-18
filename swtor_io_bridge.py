@@ -1,81 +1,86 @@
-"""Bridge into the external swtor_io_tools addon's material-by-name
-pipeline (ops/process_materials.py's _build_named_material()).
+"""Bridge into the external swtor_io_tools addon: its material-by-name
+pipeline, its GR2 importer and its JBA animation importer.
 
-Used as the first stage of Auto Crunch: rebuilds each selected object's
-materials into real native HeroEngine (Atroxa Shaders) materials, in
-place, purely by matching their current Blender name against a real
-.mat file on disk -- before conversion.py hands off to the Koda
-shaders. Replaces the old bpy.ops.zgswtor.process_named_mats /
-customize_swtor_shaders calls, which came from a different external
-addon (zg_swtor_tools).
-
-_build_named_material() is a leading-underscore ("private") function
-in swtor_io_tools, not a stable public API -- if a future swtor_io_tools
-update renames/moves it, this bridge is the only place that needs
-updating.
+Several entry points used here (_build_named_material(), load()) are not
+a stable public API -- if a future swtor_io_tools update renames/moves
+them, this bridge is the only place that needs updating.
 """
 
+import os
+import bpy  # type: ignore
 from .config import EXTERNAL_SWTOR_IO_ADDON_MODULE
 from .prefs import is_addon_enabled
 
 
-def build_named_materials_for_objects(objects):
-    """For each mesh object in `objects`, (re)builds every material slot's
-    native HeroEngine shader in place by looking its current Blender name
-    up against swtor_io_tools' .mat files. Deduplicates by material name
-    across the whole batch (a material shared across two selected objects
-    is only built once), mirroring swtor_io_tools' own
-    SWTOR_OT_apply_materials_by_name_selected precedent.
+def _addon_missing_error():
+    """Returns an error message if swtor_io_tools isn't enabled, else None."""
+    if is_addon_enabled(EXTERNAL_SWTOR_IO_ADDON_MODULE):
+        return None
+    return f"'{EXTERNAL_SWTOR_IO_ADDON_MODULE}' addon is not installed/enabled"
+# Example: _addon_missing_error() -> None
 
-    Each material's build is called with a representative object name
-    (whichever object we first encounter it on), matching
-    _build_named_material()'s `object_name` param, which it only uses
-    for SkinB's head Invert Alpha auto-detect.
+
+def _unique_materials(objects):
+    """Yields (material, object) once per distinct material name across
+    `objects`, paired with the first object it was found on."""
+    seen = set()
+    for obj in objects:
+        for slot in obj.material_slots:
+            mat = slot.material
+            if mat is None or mat.name in seen:
+                continue
+            seen.add(mat.name)
+            yield mat, obj
+# Example: list(_unique_materials([body, head])) -> [(<Material "skin">, body), (<Material "eye">, head)]
+
+
+def _log_build_result(mat_name, result, errors):
+    """Records one _build_named_material() result. Returns True if the
+    material was built; appends to `errors` on failure."""
+    if result.status == "built":
+        return True
+    if result.status == "error":
+        errors.append(f"'{mat_name}': {result.detail}")
+    elif result.status == "not_found":
+        print(f"[Auto Koda] No matching .mat file found for '{mat_name}'")
+    elif result.status == "unbuilt_type":
+        print(f"[Auto Koda] '{mat_name}' is a recognized but not-yet-supported shader type ({result.detail})")
+    # "skipped" (already built / skip-listed name): nothing to log
+    return False
+
+
+def build_named_materials_for_objects(objects):
+    """Used as the first stage of Auto Crunch: (re)builds every material
+    slot's native HeroEngine (Atroxa) shader in place by looking its
+    current Blender name up against swtor_io_tools' .mat files, before
+    conversion.py hands off to the Koda shaders. A material shared across
+    several objects is only built once, called with the first object's
+    name (which _build_named_material() only uses for SkinB's head Invert
+    Alpha auto-detect).
 
     Returns (built_count, error_messages). Never raises -- failures for
     individual materials are collected into error_messages instead, so
     one bad material doesn't stop the rest of the batch.
     """
-    if not is_addon_enabled(EXTERNAL_SWTOR_IO_ADDON_MODULE):
-        return 0, [f"'{EXTERNAL_SWTOR_IO_ADDON_MODULE}' addon is not installed/enabled"]
+    error = _addon_missing_error()
+    if error:
+        return 0, [error]
 
     try:
         from swtor_io_tools.ops.process_materials import _build_named_material #type: ignore
     except Exception as e:
         return 0, [f"Could not import swtor_io_tools' material pipeline: {e}"]
 
-    seen = set()
     built = 0
     errors = []
 
-    for obj in objects:
-        if not obj or obj.type != 'MESH':
+    for mat, obj in _unique_materials(objects):
+        try:
+            _, result = _build_named_material(mat.name, obj.name)
+        except Exception as e:
+            errors.append(f"'{mat.name}': {e}")
             continue
-
-        for slot in obj.material_slots:
-            mat = slot.material
-            if mat is None or mat.name in seen:
-                continue
-            seen.add(mat.name)
-
-            try:
-                _, result = _build_named_material(mat.name, obj.name)
-            except Exception as e:
-                errors.append(f"'{mat.name}': {e}")
-                continue
-
-            if result.status == "built":
-                built += 1
-            elif result.status == "error":
-                errors.append(f"'{mat.name}': {result.detail}")
-            elif result.status == "not_found":
-                print(f"[Auto Koda] No matching .mat file found for '{mat.name}'")
-            elif result.status == "unbuilt_type":
-                print(
-                    f"[Auto Koda] '{mat.name}' is a recognized but "
-                    f"not-yet-supported shader type ({result.detail})"
-                )
-            # "skipped" (already built / skip-listed name): nothing to log
+        built += _log_build_result(mat.name, result, errors)
 
     return built, errors
 # Example: build_named_materials_for_objects([body, head]) -> (5, ["'mat_cape': missing diffuse texture"])
@@ -94,6 +99,25 @@ _GR2_PREF_TO_OPERATOR_PROP = {
 }
 
 
+def _gr2_import_settings(context):
+    """ImportGR2 operator kwargs taken from swtor_io_tools' preferences."""
+    io_prefs = context.preferences.addons[EXTERNAL_SWTOR_IO_ADDON_MODULE].preferences
+    return {
+        op_prop: getattr(io_prefs, pref)
+        for pref, op_prop in _GR2_PREF_TO_OPERATOR_PROP.items()
+        if hasattr(io_prefs, pref)
+    }
+# Example: _gr2_import_settings(context) -> {"import_collision": False, "scale_factor": 1.0, ...}
+
+
+def _group_by_directory(filepaths):
+    by_directory = {}
+    for path in filepaths:
+        by_directory.setdefault(os.path.dirname(path), []).append(os.path.basename(path))
+    return by_directory
+# Example: _group_by_directory(["/a/x.gr2", "/a/y.gr2"]) -> {"/a": ["x.gr2", "y.gr2"]}
+
+
 def import_gr2_files(context, filepaths):
     """Imports `filepaths` through swtor_io_tools' ImportGR2 operator
     (import_mesh.gr2), using that addon's own GR2 import preferences.
@@ -101,27 +125,15 @@ def import_gr2_files(context, filepaths):
     Returns (imported_objects, error_message). error_message is None on
     success. Never raises.
     """
-    if not is_addon_enabled(EXTERNAL_SWTOR_IO_ADDON_MODULE):
-        return [], f"'{EXTERNAL_SWTOR_IO_ADDON_MODULE}' addon is not installed/enabled"
+    error = _addon_missing_error()
+    if error:
+        return [], error
 
-    import os
-    import bpy  # type: ignore
-
-    io_prefs = context.preferences.addons[EXTERNAL_SWTOR_IO_ADDON_MODULE].preferences
-    settings = {
-        op_prop: getattr(io_prefs, pref)
-        for pref, op_prop in _GR2_PREF_TO_OPERATOR_PROP.items()
-        if hasattr(io_prefs, pref)
-    }
-
-    # ImportGR2 takes one directory + file names per call
-    by_directory = {}
-    for path in filepaths:
-        by_directory.setdefault(os.path.dirname(path), []).append(os.path.basename(path))
-
+    settings = _gr2_import_settings(context)
     objects_before = set(bpy.data.objects)
 
-    for directory, names in by_directory.items():
+    # ImportGR2 takes one directory + file names per call
+    for directory, names in _group_by_directory(filepaths).items():
         try:
             result = bpy.ops.import_mesh.gr2(
                 'EXEC_DEFAULT',
@@ -137,3 +149,32 @@ def import_gr2_files(context, filepaths):
 
     return [o for o in bpy.data.objects if o not in objects_before], None
 # Example: import_gr2_files(context, [".../chest_tight_bmn_archetype.gr2"]) -> ([bpy.data.objects["chest_tight_bmn_archetype"]], None)
+
+
+def import_jba_onto_active_armature(operator, context, filepath):
+    """Calls swtor_io_tools' JBA load() (ops/import_jba.py) directly
+    against `filepath`, bypassing its File Browser-based ImportJBA
+    operator.
+
+    load()'s build() step reads ignore_facial_bones / delete_180 /
+    scale_animation / scale_factor straight off whatever `operator` it's
+    given, so Auto_Koda_OT_ImportJBA declares those same four properties
+    and passes itself through, alongside report().
+
+    Returns True on success, False on failure -- failures from within
+    swtor_io_tools are reported via operator.report() by its own
+    load()/build(), not duplicated here.
+    """
+    error = _addon_missing_error()
+    if error:
+        operator.report({'ERROR'}, error)
+        return False
+
+    try:
+        from swtor_io_tools.ops.import_jba import load #type: ignore
+    except Exception as e:
+        operator.report({'ERROR'}, f"Could not import swtor_io_tools' JBA importer: {e}")
+        return False
+
+    return load(operator, context, filepath)
+# Example: import_jba_onto_active_armature(op, context, ".../humanoid/bfa/run_fwd.jba") -> True
