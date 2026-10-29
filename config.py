@@ -24,14 +24,15 @@ KODA_NODE_NAMES = {
     "ANIMATEDUV": "CaptnKodaAndC3PO SWTOR - AnimatedUV Shader"
 }
 
-ATROXA_NODE_NAMES = {
-    "EYE"        : "Atroxa SWTOR - Eye Shader",
-    "GARMENT"    : "Atroxa SWTOR - Garment Shader",
-    "HAIRC"      : "Atroxa SWTOR - HairC Shader",
-    "SKINB"      : "Atroxa SWTOR - SkinB Shader",
-    "UBER"       : "Atroxa SWTOR - Uber Shader",
-    "UBERHUEABLE": "Atroxa SWTOR - UberHueable Shader",
-    "ANIMATEDUV": "Atroxa SWTOR - AnimatedUV Shader"
+# swtor_io_tools' native shader groups.
+HERO_ENGINE_NODE_NAMES = {
+    "EYE"        : "HeroEngine SWTOR - Eye Shader",
+    "GARMENT"    : "HeroEngine SWTOR - Garment Shader",
+    "HAIRC"      : "HeroEngine SWTOR - HairC Shader",
+    "SKINB"      : "HeroEngine SWTOR - SkinB Shader",
+    "UBER"       : "HeroEngine SWTOR - Uber Shader",
+    "UBERHUEABLE": "HeroEngine SWTOR - UberHueable Shader",
+    "ANIMATEDUV": "HeroEngine SWTOR - AnimatedUV Shader"
 }
 
 # Maps HeroEngine's custom scalar/color properties -> input socket name on

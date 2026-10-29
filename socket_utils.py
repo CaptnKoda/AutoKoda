@@ -35,7 +35,7 @@ def copy_socket_to_socket(source_socket, target_socket):
     if not hasattr(source_socket, "default_value"):
         return False
     return coerce_value_for_socket(source_socket.default_value, target_socket)
-# Example: copy_socket_to_socket(atroxa_node.inputs["Palette1 Hue"], koda_node.inputs["Palette1 Hue"]) -> True
+# Example: copy_socket_to_socket(hero_engine_node.inputs["Palette1 Hue"], koda_node.inputs["Palette1 Hue"]) -> True
 
 
 def resolve_source_socket(socket, max_depth=32):

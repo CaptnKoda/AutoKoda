@@ -51,7 +51,7 @@ def _log_build_result(mat_name, result, errors):
 
 def build_named_materials_for_objects(objects):
     """Used as the first stage of Auto Crunch: (re)builds every material
-    slot's native HeroEngine (Atroxa) shader in place by looking its
+    slot's native HeroEngine shader in place by looking its
     current Blender name up against swtor_io_tools' .mat files, before
     conversion.py hands off to the Koda shaders. A material shared across
     several objects is only built once, called with the first object's
@@ -74,13 +74,17 @@ def build_named_materials_for_objects(objects):
     built = 0
     errors = []
 
-    for mat, obj in _unique_materials(objects):
+    # Names are taken up front: a successful build user_remap()s the old
+    # material onto a new one and removes it, leaving `mat` invalid.
+    targets = [(mat.name, obj.name) for mat, obj in _unique_materials(objects)]
+
+    for mat_name, obj_name in targets:
         try:
-            _, result = _build_named_material(mat.name, obj.name)
+            _, result = _build_named_material(mat_name, obj_name)
         except Exception as e:
-            errors.append(f"'{mat.name}': {e}")
+            errors.append(f"'{mat_name}': {e}")
             continue
-        built += _log_build_result(mat.name, result, errors)
+        built += _log_build_result(mat_name, result, errors)
 
     return built, errors
 # Example: build_named_materials_for_objects([body, head]) -> (5, ["'mat_cape': missing diffuse texture"])

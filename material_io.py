@@ -100,6 +100,6 @@ def finalize_material_swap(mat, new_mat, slot_index, koda_shader_name):
     _remove_if_unused(mat)
 
     print(
-        f"[Auto Koda] Replaced Atroxa material '{old_name}' "
+        f"[Auto Koda] Replaced HeroEngine material '{old_name}' "
         f"with Koda shader '{koda_shader_name}' in slot {slot_index}"
     )

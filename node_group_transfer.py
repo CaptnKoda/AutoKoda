@@ -1,8 +1,8 @@
 """Generic transfer of inputs (values + linked textures) from a source
-Atroxa SWTOR node-group instance to the equivalent Koda SWTOR node-group
+HeroEngine SWTOR node-group instance to the equivalent Koda SWTOR node-group
 instance, matching purely by input socket *name*. Both shader families
 now use identical socket names, so no per-field mapping table is needed
-here -- the only remaining per-type mapping is ATROXA_NODE_NAMES <->
+here -- the only remaining per-type mapping is HERO_ENGINE_NODE_NAMES <->
 KODA_NODE_NAMES in config.py."""
 
 from .socket_utils import copy_socket_to_socket, get_source_image_node
@@ -29,7 +29,7 @@ def _transfer_linked_image(source_input, target_input):
     except Exception as e:
         print(f"[Auto Koda] Failed to transfer image for '{name}': {e}")
         return False
-# Example: _transfer_linked_image(atroxa_node.inputs["DiffuseMap Color"], koda_node.inputs["DiffuseMap Color"]) -> True
+# Example: _transfer_linked_image(hero_engine_node.inputs["DiffuseMap Color"], koda_node.inputs["DiffuseMap Color"]) -> True
 
 
 def transfer_group_inputs(source_node, target_node):
@@ -51,4 +51,4 @@ def transfer_group_inputs(source_node, target_node):
             print(f"[Auto Koda] Failed to copy socket '{target_input.name}'")
 
     return values_copied, images_copied
-# Example: transfer_group_inputs(atroxa_node, koda_node) -> (14, 5)  # (values copied, images copied)
+# Example: transfer_group_inputs(hero_engine_node, koda_node) -> (14, 5)  # (values copied, images copied)
