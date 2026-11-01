@@ -1,3 +1,4 @@
+import logging
 import os
 import bpy #type: ignore
 from . import config
@@ -5,6 +6,8 @@ from .prefs import get_resources_folder_path
 from .list_utils import list_files, existing_file_in, rebuild_name_collection, active_item_name
 from .garment_hue_xml import parse_representative_color, parse_garment_hue_file
 import colorsys
+
+log = logging.getLogger(__name__)
 
 DEFAULT_SWATCH_COLOR = (0.5, 0.5, 0.5, 1.0)
 
@@ -50,9 +53,18 @@ def refresh_garment_hue_collection(scene):
     files = list_files(folder, label="Garment hue folder")
 
     rebuild_name_collection(scene.auto_koda_garment_hue_files, files)
+    without_color = []
     for item in scene.auto_koda_garment_hue_files:
         color = parse_representative_color(os.path.join(folder, item.name))
         item.color = color or DEFAULT_SWATCH_COLOR
+        if color is None:
+            without_color.append(item.name)
+
+    if without_color:
+        log.warning(
+            f"{len(without_color)} of {len(files)} garment hue file(s) in '{folder}' "
+            f"have no usable representative color and show a gray swatch: {without_color}"
+        )
 
 
 def get_selected_filename(scene):

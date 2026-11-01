@@ -1,4 +1,7 @@
+import logging
 from . import config
+
+log = logging.getLogger(__name__)
 
 _HERO_ENGINE_NAME_TO_KEY = {name: key for key, name in config.HERO_ENGINE_NODE_NAMES.items()}
 
@@ -10,6 +13,10 @@ def iter_node_materials(obj):
         mat = slot.material
         if mat and mat.use_nodes:
             yield slot_index, mat
+        elif mat:
+            log.warning(f"'{obj.name}' slot {slot_index}: material '{mat.name}' doesn't use nodes, skipping")
+        else:
+            log.debug(f"'{obj.name}' slot {slot_index} is empty")
 # Example: list(iter_node_materials(body)) -> [(0, <Material "skin">), (2, <Material "chest">)]
 
 

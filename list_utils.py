@@ -1,6 +1,9 @@
 """Shared helpers for the file-backed UI lists (garment hue + JBA)."""
 
+import logging
 import os
+
+log = logging.getLogger(__name__)
 
 
 def list_files(folder_path, extension=None, label="folder"):
@@ -8,21 +11,26 @@ def list_files(folder_path, extension=None, label="folder"):
     filtered to a case-insensitive `extension` (e.g. ".jba"). Returns []
     if the folder is unset, missing or unreadable."""
     if not folder_path:
+        log.debug(f"{label} not available, nothing to list")
         return []
 
     if not os.path.isdir(folder_path):
-        print(f"[Auto Koda] {label} not found: {folder_path}")
+        log.warning(f"{label} not found: {folder_path}")
         return []
 
     try:
-        return sorted(
+        files = sorted(
             f for f in os.listdir(folder_path)
             if (extension is None or f.lower().endswith(extension))
             and os.path.isfile(os.path.join(folder_path, f))
         )
-    except Exception as e:
-        print(f"[Auto Koda] Failed to list {label} '{folder_path}': {e}")
+    except Exception:
+        log.exception(f"Failed to list {label} '{folder_path}'")
         return []
+
+    if not files:
+        log.warning(f"{label} '{folder_path}' has no {extension or ''} files")
+    return files
 # Example: list_files("/anim/humanoid/bfa", ".jba") -> ["idle.jba", "run_fwd.jba", "walk_fwd.jba"]
 
 
@@ -31,11 +39,12 @@ def existing_file_in(folder_path, filename, label="file"):
     still exists on disk (the folder may have changed since the list was
     last refreshed). Returns the path, or None."""
     if not folder_path:
+        log.warning(f"Can't locate {label} '{filename}': its folder isn't available")
         return None
 
     filepath = os.path.join(folder_path, filename)
     if not os.path.isfile(filepath):
-        print(f"[Auto Koda] {label} not found: {filepath}")
+        log.warning(f"{label} not found: {filepath}")
         return None
     return filepath
 # Example: existing_file_in("/anim/humanoid/bfa", "run_fwd.jba", "JBA file") -> "/anim/humanoid/bfa/run_fwd.jba"
@@ -58,5 +67,6 @@ def active_item_name(items, index):
     -1 when nothing is selected)."""
     if 0 <= index < len(items):
         return items[index].name
+    log.debug(f"List index {index} is out of range for {len(items)} item(s)")
     return None
 # Example: active_item_name(scene.auto_koda_garment_hue_files, 2) -> "garmenthue_red_dark.xml"

@@ -1,7 +1,11 @@
+import logging
+import os
 import bpy # type: ignore
 from .prefs import get_shaders_blend_path
 from .socket_utils import copy_socket_to_socket
 from .node_utils import find_group_node
+
+log = logging.getLogger(__name__)
 
 
 def _link_template_materials(shaders_blend_path, koda_group_name):
@@ -13,6 +17,10 @@ def _link_template_materials(shaders_blend_path, koda_group_name):
         if koda_group_name in data_from.materials:
             data_to.materials = [koda_group_name]
         else:
+            log.warning(
+                f"'{shaders_blend_path}' has no material named '{koda_group_name}', "
+                f"linking all {len(data_from.materials)} of its materials instead"
+            )
             data_to.materials = data_from.materials
 
 
@@ -32,17 +40,28 @@ def link_material_with_koda_group(koda_group_name):
     """Returns a local copy of the Shaders.blend template material holding
     `koda_group_name`, or None if it can't be found."""
     shaders_blend_path = get_shaders_blend_path()
-    _link_template_materials(shaders_blend_path, koda_group_name)
+    if not os.path.isfile(bpy.path.abspath(shaders_blend_path)):
+        log.error(f"Shaders file does not exist: {bpy.path.abspath(shaders_blend_path)}")
+        return None
+
+    try:
+        _link_template_materials(shaders_blend_path, koda_group_name)
+    except Exception:
+        log.exception(f"Failed to link materials from '{shaders_blend_path}'")
+        return None
 
     template = _find_linked_template(shaders_blend_path, koda_group_name)
     if not template:
-        print(f"[Auto Koda] No linked template material found for '{koda_group_name}'")
+        log.error(
+            f"No linked template material found for '{koda_group_name}' from '{shaders_blend_path}' "
+            f"(loaded libraries: {[lib.filepath for lib in bpy.data.libraries]})"
+        )
         return None
 
     try:
         return template.copy()
-    except Exception as e:
-        print(f"[Auto Koda] Failed to copy material for '{koda_group_name}': {e}")
+    except Exception:
+        log.exception(f"Failed to copy material for '{koda_group_name}'")
         return None
 # Example: link_material_with_koda_group("CaptnKoda SWTOR - Garment Shader") -> <Material "Garment Template.001">
 
@@ -61,7 +80,7 @@ def copy_matching_node_inputs(old_mat, new_mat):
         for new_input in new_node.inputs:
             old_input = old_inputs_by_name.get(new_input.name)
             if old_input and not copy_socket_to_socket(old_input, new_input):
-                print(f"[Auto Koda] Skipping socket '{new_input.name}'")
+                log.warning(f"Skipping socket '{new_input.name}' on node '{new_node.name}' of '{old_mat.name}'")
 
 
 def remap_material_references(old_mat, new_mat):
@@ -73,19 +92,20 @@ def remap_material_references(old_mat, new_mat):
         for i, slot_mat in enumerate(obj.data.materials):
             if slot_mat == old_mat:
                 obj.data.materials[i] = new_mat
-                print(f"[Auto Koda] Remapped material on '{obj.name}' slot {i}")
+                log.info(f"Remapped material on '{obj.name}' slot {i}")
 
 
 def _remove_if_unused(mat):
     if mat.users > 1:
+        log.warning(f"Keeping '{mat.name}': it still has {mat.users} user(s) after the swap")
         return
 
     name = mat.name
     try:
         bpy.data.materials.remove(mat)
-        print(f"[Auto Koda] Removed unused material '{name}'")
-    except Exception as e:
-        print(f"[Auto Koda] Failed to remove '{name}': {e}")
+        log.info(f"Removed unused material '{name}'")
+    except Exception:
+        log.exception(f"Failed to remove '{name}'")
 
 
 def finalize_material_swap(mat, new_mat, slot_index, koda_shader_name):
@@ -99,7 +119,7 @@ def finalize_material_swap(mat, new_mat, slot_index, koda_shader_name):
     remap_material_references(mat, new_mat)
     _remove_if_unused(mat)
 
-    print(
-        f"[Auto Koda] Replaced HeroEngine material '{old_name}' "
+    log.info(
+        f"Replaced HeroEngine material '{old_name}' "
         f"with Koda shader '{koda_shader_name}' in slot {slot_index}"
     )

@@ -1,6 +1,8 @@
+import logging
 import bpy # type: ignore
 from bpy.props import BoolProperty, FloatProperty  # type: ignore
 from . import animations, garment_hue, ipp_resolver
+from .logging_setup import LoggedOperator, logged_execute
 from .prefs import get_resources_folder_path
 from .conversion import process_object
 from .overrides import run_override_sync
@@ -8,13 +10,15 @@ from .mesh_utils import toggle_subsurf_viewport_display, prepare_meshes, assign_
 from .garment_hue_xml import apply_palette_to_objects
 from .swtor_io_bridge import build_named_materials_for_objects, import_gr2_files, import_jba_onto_active_armature
 
+log = logging.getLogger(__name__)
+
 
 def _require_selected_meshes(operator, context):
     """Returns the selected mesh objects, or reports a warning on
     `operator` and returns [] if there are none."""
     objects = [o for o in context.selected_objects if o.type == 'MESH']
     if not objects:
-        operator.report({'WARNING'}, "No mesh objects selected")
+        operator.log_report({'WARNING'}, "No mesh objects selected")
     return objects
 # Example: _require_selected_meshes(self, context) -> [bpy.data.objects["Body"], bpy.data.objects["Head"]]
 
@@ -29,12 +33,13 @@ def _select_only(context, objects):
         context.view_layer.objects.active = objects[0]
 
 
-class Auto_Koda_Crunch_Selected(bpy.types.Operator):
+class Auto_Koda_Crunch_Selected(LoggedOperator, bpy.types.Operator):
     bl_idname = "autokoda.crunch_selected"
     bl_label = "Auto Crunch"
     bl_description = "Run Auto Crunch (Selected)"
     bl_options = {'REGISTER', 'UNDO'}
 
+    @logged_execute
     def execute(self, context):
         objects = _require_selected_meshes(self, context)
         if not objects:
@@ -42,40 +47,46 @@ class Auto_Koda_Crunch_Selected(bpy.types.Operator):
 
         built, errors = build_named_materials_for_objects(objects)
         for err in errors:
-            print(f"[Auto Koda] {err}")
+            log.error(err)
 
+        converted = 0
+        failed = 0
         for obj in objects:
-            process_object(obj)
+            obj_converted, obj_failed = process_object(obj)
+            converted += obj_converted
+            failed += obj_failed
 
-        if errors:
-            self.report(
-                {'WARNING'},
-                f"Built {built} native material(s); {len(errors)} error(s) - see console"
-            )
+        summary = f"Built {built} native material(s), converted {converted} material(s) on {len(objects)} object(s)"
+        if errors or failed:
+            self.log_report({'WARNING'}, f"{summary}; {len(errors) + failed} error(s) - see console")
+        elif not built and not converted:
+            self.log_report({'WARNING'}, f"{summary} - nothing to do, see console")
         else:
-            self.report(
-                {'INFO'},
-                f"Built {built} native material(s), converted {len(objects)} object(s)"
-            )
+            self.log_report({'INFO'}, summary)
 
         return {'FINISHED'}
-    # Example: execute(context) -> {'FINISHED'}  (reports "Built 5 native material(s), converted 2 object(s)")
+    # Example: execute(context) -> {'FINISHED'}  (reports "Built 5 native material(s), converted 5 material(s) on 2 object(s)")
 
-class _OverrideSyncBase:
+class _OverrideSyncBase(LoggedOperator):
     """Shared execute() for the three override operators; subclasses only
     choose which steps of run_override_sync() to run."""
     bl_options = {'REGISTER', 'UNDO'}
     do_sync_values = False
     do_link_override = False
 
+    @logged_execute
     def execute(self, context):
-        run_override_sync(
+        pairs, copied, links = run_override_sync(
             do_sync_values=self.do_sync_values,
             do_link_override=self.do_link_override,
         )
-        self.report({'INFO'}, f"{self.bl_label} executed")
+        if not pairs:
+            self.log_report({'WARNING'}, f"{self.bl_label}: no master/override shader pair on the active object - see console")
+            return {'CANCELLED'}
+
+        self.log_report({'INFO'}, f"{self.bl_label}: {copied} value(s) copied, {links} link(s) created on {pairs} pair(s)")
         return {'FINISHED'}
-    # Example: execute(context) -> {'FINISHED'}  (reports "Sync Override executed")
+    # Example: execute(context) -> {'FINISHED'}  (reports "Sync Override: 22 value(s) copied, 0 link(s) created on 1 pair(s)")
 
 class Auto_Koda_OT_SyncOverride(_OverrideSyncBase, bpy.types.Operator):
     bl_idname = "autokoda.sync_override"
@@ -96,12 +107,13 @@ class Auto_Koda_OT_SyncLinkOverride(_OverrideSyncBase, bpy.types.Operator):
     do_sync_values = True
     do_link_override = True
 
-class Auto_Koda_OT_ToggleSubsurfViewport(bpy.types.Operator):
+class Auto_Koda_OT_ToggleSubsurfViewport(LoggedOperator, bpy.types.Operator):
     bl_idname = "autokoda.toggle_subsurf_viewport"
     bl_label = "Toggle Subsurf Viewport Display"
     bl_description = "Toggle viewport display of Subdivision Surface modifiers on selected objects"
     bl_options = {'REGISTER', 'UNDO'}
 
+    @logged_execute
     def execute(self, context):
         objects = _require_selected_meshes(self, context)
         if not objects:
@@ -109,39 +121,44 @@ class Auto_Koda_OT_ToggleSubsurfViewport(bpy.types.Operator):
 
         count = toggle_subsurf_viewport_display(objects)
         if count == 0:
-            self.report({'WARNING'}, "No Subdivision Surface modifiers found on selection")
+            self.log_report({'WARNING'}, "No Subdivision Surface modifiers found on selection")
             return {'CANCELLED'}
 
-        self.report({'INFO'}, f"Toggled {count} Subdivision Surface modifier(s)")
+        self.log_report({'INFO'}, f"Toggled {count} Subdivision Surface modifier(s)")
         return {'FINISHED'}
     # Example: execute(context) -> {'FINISHED'}  (reports "Toggled 3 Subdivision Surface modifier(s)")
 
-class Auto_Koda_OT_PrepareMeshes(bpy.types.Operator):
+class Auto_Koda_OT_PrepareMeshes(LoggedOperator, bpy.types.Operator):
     bl_idname = "autokoda.prepare_meshes"
     bl_label = "Mesh Preparation"
     bl_description = "Merge by distance, convert tris to quads, and clear custom split normals on selected meshes"
     bl_options = {'REGISTER', 'UNDO'}
 
+    @logged_execute
     def execute(self, context):
         objects = _require_selected_meshes(self, context)
         if not objects:
             return {'CANCELLED'}
 
         count = prepare_meshes(objects)
-        self.report({'INFO'}, f"Prepared {count} mesh(es)")
+        if count < len(objects):
+            self.log_report({'WARNING'}, f"Fully prepared {count} of {len(objects)} mesh(es) - see console")
+        else:
+            self.log_report({'INFO'}, f"Prepared {count} mesh(es)")
         return {'FINISHED'}
     # Example: execute(context) -> {'FINISHED'}  (reports "Prepared 3 mesh(es)")
 
-class _GarmentHueApplyBase:
+class _GarmentHueApplyBase(LoggedOperator):
     """Shared execute() for the Primary/Secondary garment hue operators;
     subclasses set which palette slot (1 or 2) they write to."""
     bl_options = {'REGISTER', 'UNDO'}
     palette_slot = 1
 
+    @logged_execute
     def execute(self, context):
         filename = garment_hue.get_selected_filename(context.scene)
         if not filename:
-            self.report({'WARNING'}, "No garment hue file selected")
+            self.log_report({'WARNING'}, "No garment hue file selected")
             return {'CANCELLED'}
 
         objects = _require_selected_meshes(self, context)
@@ -150,11 +167,15 @@ class _GarmentHueApplyBase:
 
         values = garment_hue.load_garment_hue_values(filename)
         if not values:
-            self.report({'ERROR'}, f"Could not read '{filename}' - check console")
+            self.log_report({'ERROR'}, f"Could not read '{filename}' - check console")
             return {'CANCELLED'}
 
         nodes_updated = apply_palette_to_objects(objects, values, slot=self.palette_slot)
-        self.report({'INFO'}, f"Applied '{filename}' ({self.bl_label}) to {nodes_updated} node(s)")
+        if not nodes_updated:
+            self.log_report({'WARNING'}, f"'{filename}' wasn't applied: no Koda shader node took it - see console")
+            return {'CANCELLED'}
+
+        self.log_report({'INFO'}, f"Applied '{filename}' ({self.bl_label}) to {nodes_updated} node(s)")
         return {'FINISHED'}
     # Example: execute(context) -> {'FINISHED'}  (reports "Applied 'garmenthue_red_light.xml' (Primary) to 4 node(s)")
 
@@ -172,29 +193,35 @@ class Auto_Koda_OT_GarmentHueSecondary(_GarmentHueApplyBase, bpy.types.Operator)
     bl_description = "Apply the selected garment hue file to Palette 2 on selected objects' Koda materials"
     palette_slot = 2
 
-class Auto_Koda_OT_RefreshGarmentHueList(bpy.types.Operator):
+class Auto_Koda_OT_RefreshGarmentHueList(LoggedOperator, bpy.types.Operator):
     bl_idname = "autokoda.refresh_garment_hue_list"
     bl_label = "Refresh Garment Hue List"
     bl_description = "Rescan the garmenthue folder for files"
     bl_options = {'INTERNAL'}
 
+    @logged_execute
     def execute(self, context):
         garment_hue.refresh_garment_hue_collection(context.scene)
+        if not context.scene.auto_koda_garment_hue_files:
+            self.log_report({'WARNING'}, "No garment hue files found - see console")
         return {'FINISHED'}
     # Example: execute(context) -> {'FINISHED'}
 
-class Auto_Koda_OT_RefreshJBAList(bpy.types.Operator):
+class Auto_Koda_OT_RefreshJBAList(LoggedOperator, bpy.types.Operator):
     bl_idname = "autokoda.refresh_jba_list"
     bl_label = "Refresh Animation List"
     bl_description = "Rescan the anim folder tree for subfolders and .jba files"
     bl_options = {'INTERNAL'}
 
+    @logged_execute
     def execute(self, context):
         animations.refresh_jba_lists(context.scene)
+        if not context.scene.auto_koda_jba_folders:
+            self.log_report({'WARNING'}, "No animation folders found - see console")
         return {'FINISHED'}
     # Example: execute(context) -> {'FINISHED'}
 
-class Auto_Koda_OT_ImportJBA(bpy.types.Operator):
+class Auto_Koda_OT_ImportJBA(LoggedOperator, bpy.types.Operator):
     bl_idname = "autokoda.import_jba"
     bl_label = "Import JBA"
     bl_description = "Import the selected .jba animation onto the active armature"
@@ -231,25 +258,26 @@ class Auto_Koda_OT_ImportJBA(bpy.types.Operator):
         return context.active_object is not None and context.active_object.type == 'ARMATURE'
     # Example: poll(context) -> True  (active object is an armature)
 
+    @logged_execute
     def execute(self, context):
         filename = animations.get_selected_jba_filename(context.scene)
         if not filename:
-            self.report({'WARNING'}, "No animation selected")
+            self.log_report({'WARNING'}, "No animation selected")
             return {'CANCELLED'}
 
         filepath = animations.get_jba_filepath(context.scene, filename)
         if not filepath:
-            self.report({'ERROR'}, "Selected .jba file no longer exists - try Refresh")
+            self.log_report({'ERROR'}, f"Could not locate '{filename}' - try Refresh, see console")
             return {'CANCELLED'}
 
         if import_jba_onto_active_armature(self, context, filepath):
-            self.report({'INFO'}, f"Imported '{filename}' onto '{context.active_object.name}'")
+            self.log_report({'INFO'}, f"Imported '{filename}' onto '{context.active_object.name}'")
             return {'FINISHED'}
 
         return {'CANCELLED'}
     # Example: execute(context) -> {'FINISHED'}  (reports "Imported 'run_fwd.jba' onto 'Armature'")
 
-class Auto_Koda_OT_ImportIpp(bpy.types.Operator):
+class Auto_Koda_OT_ImportIpp(LoggedOperator, bpy.types.Operator):
     bl_idname = "autokoda.import_ipp"
     bl_label = "Import Item Appearance"
     bl_description = "Import every .gr2 model used by the entered item appearance (ipp)"
@@ -265,25 +293,29 @@ class Auto_Koda_OT_ImportIpp(bpy.types.Operator):
         materials. Reports and returns None on failure."""
         resources_path = get_resources_folder_path()
         if not resources_path:
-            self.report({'ERROR'}, "TOR resources folder not set or invalid")
+            self.log_report({'ERROR'}, "TOR resources folder not set or invalid")
             return None
 
         try:
             resolved = ipp_resolver.resolve_ipp(resources_path, ipp, context.scene.auto_koda_body_type)
         except ipp_resolver.IppResolveError as e:
-            self.report({'ERROR'}, str(e))
+            self.log_report({'ERROR'}, str(e))
             return None
         except Exception as e:
-            self.report({'ERROR'}, f"Could not resolve '{ipp}': {e}")
+            log.exception(f"Unexpected error resolving '{ipp}' under '{resources_path}'")
+            self.log_report({'ERROR'}, f"Could not resolve '{ipp}': {type(e).__name__}: {e}")
             return None
 
         for path in resolved["missing"]:
-            print(f"[Auto Koda] Missing model for '{ipp}': {path}")
+            log.warning(f"Missing model for '{ipp}': {path}")
         for mat_name in resolved["materials"]:
-            print(f"[Auto Koda] '{ipp}' uses material {mat_name}")
+            log.info(f"'{ipp}' uses material {mat_name}")
+        if not resolved["materials"]:
+            log.warning(f"'{ipp}' selects no material on '{resolved['art_name']}', the imported models keep their own")
         return resolved
     # Example: _resolve(context, "ipp.class.spy.quest.tdps2.t1x1.chest") -> {"slot": "chest", "gr2_paths": [...], ...}
 
+    @logged_execute
     def execute(self, context):
         ipp = context.scene.auto_koda_ipp.strip()
         resolved = self._resolve(context, ipp)
@@ -291,12 +323,16 @@ class Auto_Koda_OT_ImportIpp(bpy.types.Operator):
             return {'CANCELLED'}
 
         if not resolved["gr2_paths"]:
-            self.report({'ERROR'}, f"No .gr2 files found on disk for '{resolved['art_name']}'")
+            self.log_report({'ERROR'}, f"No .gr2 files found on disk for '{resolved['art_name']}'")
             return {'CANCELLED'}
 
         imported, error = import_gr2_files(context, resolved["gr2_paths"])
         if error:
-            self.report({'ERROR'}, error)
+            self.log_report({'ERROR'}, error)
+            return {'CANCELLED'}
+
+        if not imported:
+            self.log_report({'ERROR'}, f"GR2 importer finished but created no objects for '{resolved['art_name']}'")
             return {'CANCELLED'}
 
         if resolved["materials"]:
@@ -306,8 +342,8 @@ class Auto_Koda_OT_ImportIpp(bpy.types.Operator):
 
         message = f"Imported {len(imported)} object(s) for '{resolved['art_name']}'"
         if resolved["missing"]:
-            self.report({'WARNING'}, f"{message} - {len(resolved['missing'])} model(s) missing (see console)")
+            self.log_report({'WARNING'}, f"{message} - {len(resolved['missing'])} model(s) missing (see console)")
         else:
-            self.report({'INFO'}, message)
+            self.log_report({'INFO'}, message)
         return {'FINISHED'}
     # Example: execute(context) -> {'FINISHED'}  (reports "Imported 2 object(s) for 'chest_tight_med_ge_a15'")

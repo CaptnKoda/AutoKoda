@@ -17,10 +17,13 @@ stray IDs (color schemes etc.) are expected -- they simply don't match
 any asset/attachment and are ignored.
 """
 
+import logging
 import os
 import glob
 import struct
 import xml.etree.ElementTree as ET
+
+log = logging.getLogger(__name__)
 
 # Garment slot folders under art/dynamic/ searched for the ipp's asset
 # (headgear lives in "face", not "head" -- "head" holds character heads)
@@ -60,21 +63,37 @@ def _node_payload(data, name_pos, needle):
 def find_ipp_payload(resources_path, ipp):
     """Returns the raw payload bytes of the bucket node named `ipp`, or
     raises IppResolveError if no bucket contains it."""
-    needle = ipp.encode("ascii") + b"\x00"
-    bucket_glob = os.path.join(resources_path, "systemgenerated", "buckets", "*.bkt")
+    try:
+        needle = ipp.encode("ascii") + b"\x00"
+    except UnicodeEncodeError as e:
+        raise IppResolveError(f"'{ipp}' contains non-ASCII characters, node names are ASCII: {e}") from e
 
-    for bucket_path in glob.glob(bucket_glob):
-        with open(bucket_path, "rb") as f:
-            data = f.read()
+    bucket_glob = os.path.join(resources_path, "systemgenerated", "buckets", "*.bkt")
+    bucket_paths = glob.glob(bucket_glob)
+    if not bucket_paths:
+        raise IppResolveError(f"No bucket files match {bucket_glob}")
+
+    references = 0
+    for bucket_path in bucket_paths:
+        try:
+            with open(bucket_path, "rb") as f:
+                data = f.read()
+        except OSError as e:
+            raise IppResolveError(f"Could not read bucket '{bucket_path}': {e}") from e
 
         pos = data.find(needle)
         while pos != -1:
             payload = _node_payload(data, pos, needle)
             if payload is not None:
+                log.debug(f"'{ipp}' found in '{bucket_path}', payload is {len(payload)} byte(s)")
                 return payload
+            references += 1
             pos = data.find(needle, pos + 1)
 
-    raise IppResolveError(f"'{ipp}' not found in any bucket under {resources_path}")
+    raise IppResolveError(
+        f"'{ipp}' not found in any of {len(bucket_paths)} bucket(s) under {resources_path} "
+        f"({references} reference(s) to that name, none of them a node header)"
+    )
 # Example: find_ipp_payload("/mnt/TOR/resources", "ipp.class.spy.quest.tdps2.t1x1.chest") -> b"\xcc\x02\xed..."
 
 
@@ -91,7 +110,14 @@ def extract_art_ids(payload):
 def _load_slot_index(resources_path, slot):
     path = os.path.join(resources_path, "art", "dynamic", slot, "index.xml")
     if path not in _index_cache:
-        _index_cache[path] = ET.parse(path).getroot() if os.path.isfile(path) else None
+        if not os.path.isfile(path):
+            log.warning(f"No index for garment slot '{slot}': {path}")
+            _index_cache[path] = None
+        else:
+            try:
+                _index_cache[path] = ET.parse(path).getroot()
+            except (ET.ParseError, OSError) as e:
+                raise IppResolveError(f"Could not read slot index '{path}': {e}") from e
     return _index_cache[path]
 # Example: _load_slot_index("/mnt/TOR/resources", "chest") -> <Element 'AssetIndex'>
 
@@ -100,6 +126,15 @@ def _resources_file(resources_path, game_path):
     """'/art/dynamic/…' (as written in index.xml) -> absolute path on disk."""
     return os.path.join(resources_path, *game_path.strip("/").split("/"))
 # Example: _resources_file("/mnt/TOR/resources", "/art/dynamic/chest/model/a.gr2") -> "/mnt/TOR/resources/art/dynamic/chest/model/a.gr2"
+
+
+def _parse_id(text, description):
+    """int(text), raising an IppResolveError naming the bad entry on failure."""
+    try:
+        return int(text)
+    except (TypeError, ValueError) as e:
+        raise IppResolveError(f"{description} has a non-integer id {text!r}") from e
+# Example: _parse_id("1000094", "<Asset> in chest/index.xml") -> 1000094
 
 
 def _find_asset(resources_path, ids):
@@ -112,7 +147,7 @@ def _find_asset(resources_path, ids):
 
         for asset in root.iter("Asset"):
             asset_id = asset.findtext("ID")
-            if asset_id and int(asset_id) in ids:
+            if asset_id and _parse_id(asset_id, f"An <Asset> in {slot}/index.xml") in ids:
                 return slot, asset
     return None, None
 # Example: _find_asset("/mnt/TOR/resources", {1000094, 1000101}) -> ("chest", <Element 'Asset'>)
@@ -121,10 +156,21 @@ def _find_asset(resources_path, ids):
 def _model_game_paths(asset, ids, body_type):
     """Base model plus the attachments the ipp selects (all of them if
     none are listed), with '[bt]' swapped for `body_type`."""
+    art_name = asset.findtext("ArtName")
     attachments = asset.findall("Attachments/Attachment")
-    chosen = [a for a in attachments if int(a.get("id", -1)) in ids] or attachments
+    chosen = [
+        a for a in attachments
+        if _parse_id(a.get("id", -1), f"An <Attachment> of '{art_name}'") in ids
+    ]
+    if attachments and not chosen:
+        log.info(f"'{art_name}': the ipp lists none of its {len(attachments)} attachment(s), using all of them")
+    chosen = chosen or attachments
 
-    model_paths = [asset.findtext("BaseFile")] + [a.get("filename") for a in chosen]
+    base_file = asset.findtext("BaseFile")
+    if not base_file:
+        log.warning(f"'{art_name}' has no <BaseFile>, so no base model will be imported")
+
+    model_paths = [base_file] + [a.get("filename") for a in chosen]
     return [p.replace("[bt]", body_type) for p in model_paths if p]
 # Example: _model_game_paths(asset, ids, "bmn") -> ["/art/dynamic/chest/model/chest_tight_bmn_archetype.gr2", ...]
 
@@ -149,20 +195,29 @@ def resolve_ipp(resources_path, ipp, body_type):
                    for `body_type` (no extension)
     """
     ids = extract_art_ids(find_ipp_payload(resources_path, ipp))
+    log.debug(f"'{ipp}' candidate art IDs: {sorted(ids)}")
 
     slot, asset = _find_asset(resources_path, ids)
     if asset is None:
-        raise IppResolveError(f"No art asset in {', '.join(GARMENT_SLOTS)} matches '{ipp}'")
+        raise IppResolveError(
+            f"No art asset in {', '.join(GARMENT_SLOTS)} matches '{ipp}' "
+            f"(tried {len(ids)} candidate ID(s): {sorted(ids)})"
+        )
+    log.debug(f"'{ipp}' matched asset '{asset.findtext('ArtName')}' in slot '{slot}'")
 
     gr2_paths, missing = [], []
     for game_path in _model_game_paths(asset, ids, body_type):
         path = _resources_file(resources_path, game_path)
         (gr2_paths if os.path.isfile(path) else missing).append(path)
 
-    materials = [
-        _material_name(m.get("filename"), body_type) for m in asset.findall("Materials/Material")
-        if int(m.get("id", -1)) in ids
-    ]
+    materials = []
+    for m in asset.findall("Materials/Material"):
+        if _parse_id(m.get("id", -1), f"A <Material> of '{asset.findtext('ArtName')}'") not in ids:
+            continue
+        if not m.get("filename"):
+            log.warning(f"<Material> id {m.get('id')} of '{asset.findtext('ArtName')}' has no filename, skipping it")
+            continue
+        materials.append(_material_name(m.get("filename"), body_type))
 
     return {
         "slot": slot,

@@ -19,11 +19,14 @@ expensive part on a large anim tree -- only actually touches the
 filesystem when something has actually changed.
 """
 
+import logging
 import os
 import bpy  # type: ignore
 from . import config
 from .prefs import get_anim_root_path
 from .list_utils import list_files, existing_file_in, rebuild_name_collection, active_item_name
+
+log = logging.getLogger(__name__)
 
 
 class Auto_Koda_JBAItem(bpy.types.PropertyGroup):
@@ -32,6 +35,11 @@ class Auto_Koda_JBAItem(bpy.types.PropertyGroup):
 
 class Auto_Koda_JBAFolderItem(bpy.types.PropertyGroup):
     name: bpy.props.StringProperty()  # type: ignore
+
+
+def _log_walk_error(error):
+    """os.walk() silently skips folders it can't read unless told otherwise."""
+    log.warning(f"Could not read anim subfolder, skipping it: {error}")
 
 
 def list_jba_subfolders(root_path):
@@ -52,7 +60,7 @@ def list_jba_subfolders(root_path):
 
     qualifying = []
     try:
-        for dirpath, dirnames, filenames in os.walk(root_path):
+        for dirpath, dirnames, filenames in os.walk(root_path, onerror=_log_walk_error):
             dirnames[:] = [
                 d for d in dirnames
                 if d.lower() not in config.IGNORED_JBA_FOLDER_NAMES
@@ -60,10 +68,12 @@ def list_jba_subfolders(root_path):
 
             if any(f.lower().endswith(".jba") for f in filenames):
                 qualifying.append(os.path.relpath(dirpath, root_path))
-    except Exception as e:
-        print(f"[Auto Koda] Failed to scan anim root folder '{root_path}': {e}")
+    except Exception:
+        log.exception(f"Failed to scan anim root folder '{root_path}'")
         return []
 
+    if not qualifying:
+        log.warning(f"No .jba files found anywhere under anim root '{root_path}'")
     return sorted(qualifying)
 # Example: list_jba_subfolders("/home/koda/SWTOR/resources/anim") -> [".", "humanoid/bfa", "humanoid/bma"]
 
@@ -91,7 +101,14 @@ def get_selected_jba_folder_path(scene):
         return None
 
     rel = scene.auto_koda_jba_folder_name.strip()
-    if not rel or rel not in scene.auto_koda_jba_folders:
+    if not rel:
+        log.debug("No Animation Set selected")
+        return None
+    if rel not in scene.auto_koda_jba_folders:
+        log.warning(
+            f"Animation Set '{rel}' is not one of the {len(scene.auto_koda_jba_folders)} "
+            f"folder(s) found under '{root}' - pick one from the list or press Refresh"
+        )
         return None
 
     return root if rel == "." else os.path.join(root, rel)
@@ -131,4 +148,7 @@ def get_jba_filepath(scene, filename):
 def on_jba_folder_name_changed(self, context):
     """Update callback for scene.auto_koda_jba_folder_name: repopulate
     the file list to match whichever subfolder was just typed/picked."""
-    refresh_jba_collection(context.scene)
+    try:
+        refresh_jba_collection(context.scene)
+    except Exception:
+        log.exception(f"Could not refresh the JBA file list for '{self.auto_koda_jba_folder_name}'")

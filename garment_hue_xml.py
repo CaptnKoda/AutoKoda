@@ -1,10 +1,13 @@
 """Parsing of garmenthue XML palette files, and applying their values onto
 Koda group node inputs (palette1_* for Primary, palette2_* for Secondary)."""
 
+import logging
 import xml.etree.ElementTree as ET
 from . import config
 from .node_utils import iter_node_materials, is_koda_group_node
 from .socket_utils import coerce_value_for_socket
+
+log = logging.getLogger(__name__)
 
 
 def _parse_float_list(text):
@@ -30,7 +33,7 @@ def _load_xml_root(filepath, purpose):
     try:
         return ET.parse(filepath).getroot()
     except Exception as e:
-        print(f"[Auto Koda] Failed to parse '{filepath}' for {purpose}: {e}")
+        log.warning(f"Failed to parse '{filepath}' for {purpose}: {type(e).__name__}: {e}")
         return None
 # Example: _load_xml_root(".../garmenthue_red_light.xml", "garment hue") -> <Element 'GarmentHue'>
 
@@ -64,11 +67,15 @@ def parse_garment_hue_file(filepath):
     for tag, (key, parse) in _GARMENT_HUE_FIELDS.items():
         text = _find_text(root, tag)
         if text is None:
+            log.warning(f"<{tag}> is missing or empty in '{filepath}'")
             continue
         try:
             values[key] = parse(text)
-        except ValueError:
-            print(f"[Auto Koda] Could not parse <{tag}> in '{filepath}'")
+        except ValueError as e:
+            log.warning(f"Could not parse <{tag}> value '{text}' in '{filepath}': {e}")
+
+    if not values:
+        log.error(f"'{filepath}' (root <{root.tag}>) has no usable values for: {list(_GARMENT_HUE_FIELDS)}")
 
     return values
 # Example: parse_garment_hue_file(".../garmenthue_red_light.xml") -> {"hue": 0.2802, "saturation": 0.58, "brightness": -0.08, "contrast": 0.45, "specular": [1.0, 0.91, 0.67, 1.0], "metallic_specular": [0.61, 0.92, 1.0, 1.0]}
@@ -83,14 +90,17 @@ def parse_representative_color(filepath):
 
     text = _find_text(root, "Representativecolor")
     if text is None:
+        log.debug(f"<Representativecolor> is missing or empty in '{filepath}'")
         return None
 
     try:
         values = _parse_float_list(text)
-    except ValueError:
+    except ValueError as e:
+        log.warning(f"Could not parse <Representativecolor> value '{text}' in '{filepath}': {e}")
         return None
 
     if len(values) < 3:
+        log.warning(f"<Representativecolor> value '{text}' in '{filepath}' has fewer than 3 components")
         return None
     if len(values) == 3:
         values.append(1.0)
@@ -114,12 +124,13 @@ def apply_palette_to_koda_node(values, koda_node, slot):
 
         koda_input = koda_inputs.get(mapped_name) or koda_inputs.get(hero_prop)
         if not koda_input:
+            log.warning(f"Node '{koda_node.name}' has no input '{mapped_name}' or '{hero_prop}', skipping that value")
             continue
 
         if coerce_value_for_socket(value, koda_input):
             copied += 1
         else:
-            print(f"[Auto Koda] Failed to apply '{hero_prop}' -> '{koda_input.name}'")
+            log.warning(f"Failed to apply '{hero_prop}' -> '{koda_input.name}'")
 
     return copied
 # Example: apply_palette_to_koda_node(values, koda_node, slot=1) -> 6
@@ -132,10 +143,15 @@ def apply_palette_to_objects(objects, values, slot):
     nodes_updated = 0
 
     for obj in objects:
+        updated_on_object = 0
         for _, mat in iter_node_materials(obj):
             for node in mat.node_tree.nodes:
                 if is_koda_group_node(node) and apply_palette_to_koda_node(values, node, slot):
-                    nodes_updated += 1
+                    updated_on_object += 1
+
+        if not updated_on_object:
+            log.warning(f"'{obj.name}': no Koda shader node took palette {slot} - has it been through Auto Crunch?")
+        nodes_updated += updated_on_object
 
     return nodes_updated
 # Example: apply_palette_to_objects(objects, values, slot=2) -> 4

@@ -1,5 +1,8 @@
+import logging
 import bpy # type: ignore
-from . import operators, ui, garment_hue, animations, config
+from . import operators, ui, garment_hue, animations, config, logging_setup
+
+log = logging.getLogger(__name__)
 
 classes = [
     ui.Auto_Koda_PT_Process_Materials,
@@ -43,8 +46,8 @@ def _refresh_lists():
     for refresh, label in _LIST_REFRESHERS:
         try:
             refresh(bpy.context.scene)
-        except Exception as e:
-            print(f"[Auto Koda] {label} refresh skipped: {e}")
+        except Exception:
+            log.exception(f"{label} refresh failed")
     return None  # for timer: don't repeat
 # Example: _refresh_lists() -> None  (timer runs once)
 
@@ -60,7 +63,10 @@ def _on_load_post(dummy):
     file, opening a saved file, or File > New), so the garment hue list
     and JBA animation list - and any stale data baked into an older save
     - get rebuilt fresh."""
-    _schedule_list_refresh()
+    try:
+        _schedule_list_refresh()
+    except Exception:
+        log.exception("Could not schedule the list refresh after file load")
 
 
 def _scene_properties():
@@ -94,6 +100,10 @@ def _scene_properties():
         "auto_koda_jba_files": bpy.props.CollectionProperty(
             type=animations.Auto_Koda_JBAItem
         ),
+        "auto_koda_jba_filter": bpy.props.StringProperty(
+            name="Filter",
+            description="Type to filter the animation list",
+        ),
         "auto_koda_jba_index": bpy.props.IntProperty(
             default=-1
         ),
@@ -111,8 +121,14 @@ def _scene_properties():
 
 
 def register():
+    logging_setup.setup_logging()
+
     for cls in classes:
-        bpy.utils.register_class(cls)
+        try:
+            bpy.utils.register_class(cls)
+        except Exception:
+            log.exception(f"Failed to register class '{cls.__name__}'")
+            raise
 
     for name, prop in _scene_properties().items():
         setattr(bpy.types.Scene, name, prop)
@@ -129,7 +145,15 @@ def unregister():
         bpy.app.handlers.load_post.remove(_on_load_post)
 
     for name in _scene_properties():
-        delattr(bpy.types.Scene, name)
+        try:
+            delattr(bpy.types.Scene, name)
+        except Exception:
+            log.exception(f"Failed to remove scene property '{name}'")
 
     for cls in reversed(classes):
-        bpy.utils.unregister_class(cls)
+        try:
+            bpy.utils.unregister_class(cls)
+        except Exception:
+            log.exception(f"Failed to unregister class '{cls.__name__}'")
+
+    logging_setup.shutdown_logging()

@@ -236,7 +236,7 @@ class Auto_Koda_PT_Animations(_AutoKodaView3DPanel, bpy.types.Panel):
         )
 
         row = layout.row(align=True)
-        row.label(text="")
+        row.prop(context.scene, "auto_koda_jba_filter", text="", icon='VIEWZOOM')
         row.operator(
             operators.Auto_Koda_OT_RefreshJBAList.bl_idname,
             text="", icon='FILE_REFRESH'
@@ -257,3 +257,15 @@ class Auto_Koda_PT_Animations(_AutoKodaView3DPanel, bpy.types.Panel):
 class AUTOKODA_UL_jba_animations(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
         layout.label(text=item.name, icon='ANIM')
+
+    def filter_items(self, context, data, propname):
+        items = getattr(data, propname)
+        filter_text = data.auto_koda_jba_filter.lower()
+
+        flt_flags = [
+            self.bitflag_filter_item if filter_text in item.name.lower() else 0
+            for item in items
+        ]
+
+        return flt_flags, list(range(len(items)))
+    # Example: filter_items(context, scene, "auto_koda_jba_files") -> ([1073741824, 0, 1073741824], [0, 1, 2])
