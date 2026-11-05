@@ -9,10 +9,17 @@ log = logging.getLogger(__name__)
 
 
 def _link_template_materials(shaders_blend_path, koda_group_name):
-    # Template materials are named after the Koda group they hold, so link
-    # just that one rather than every material (and all their node groups)
-    # in Shaders.blend. A custom Shaders.blend with different material
-    # names falls back to linking everything.
+    """Links the template material(s) from `shaders_blend_path` and returns
+    them. Template materials are named after the Koda group they hold, so
+    link just that one rather than every material (and all their node
+    groups) in Shaders.blend. A custom Shaders.blend with different
+    material names falls back to linking everything.
+
+    The materials are returned straight from the load rather than looked
+    up afterwards by comparing library paths: once the .blend has been
+    saved, Blender stores the library path relative ("//..\\Shaders.blend"),
+    and an already-linked library is reused under that stored path, so a
+    string comparison against the absolute path misses a link that worked."""
     with bpy.data.libraries.load(shaders_blend_path, link=True) as (data_from, data_to):
         if koda_group_name in data_from.materials:
             data_to.materials = [koda_group_name]
@@ -21,19 +28,19 @@ def _link_template_materials(shaders_blend_path, koda_group_name):
                 f"'{shaders_blend_path}' has no material named '{koda_group_name}', "
                 f"linking all {len(data_from.materials)} of its materials instead"
             )
-            data_to.materials = data_from.materials
+            data_to.materials = list(data_from.materials)
+    return [mat for mat in data_to.materials if mat is not None]
+# Example: _link_template_materials(".../Shaders.blend", "CaptnKoda SWTOR - Garment Shader") -> [<Material "CaptnKoda SWTOR - Garment Shader">]
 
 
-def _find_linked_template(shaders_blend_path, koda_group_name):
-    """Returns the material linked from `shaders_blend_path` that holds
-    the `koda_group_name` group node, or None."""
-    for mat in bpy.data.materials:
-        if mat.library is None or mat.library.filepath != shaders_blend_path:
-            continue
-        if mat.use_nodes and find_group_node(mat.node_tree, exact_name=koda_group_name):
+def _find_template(linked_materials, koda_group_name):
+    """Returns the material in `linked_materials` that holds the
+    `koda_group_name` group node, or None."""
+    for mat in linked_materials:
+        if mat.node_tree and find_group_node(mat.node_tree, exact_name=koda_group_name):
             return mat
     return None
-# Example: _find_linked_template(".../Shaders.blend", "CaptnKoda SWTOR - Garment Shader") -> <Material "Garment Template">
+# Example: _find_template(linked, "CaptnKoda SWTOR - Garment Shader") -> <Material "CaptnKoda SWTOR - Garment Shader">
 
 
 def link_material_with_koda_group(koda_group_name):
@@ -45,16 +52,17 @@ def link_material_with_koda_group(koda_group_name):
         return None
 
     try:
-        _link_template_materials(shaders_blend_path, koda_group_name)
+        linked_materials = _link_template_materials(shaders_blend_path, koda_group_name)
     except Exception:
         log.exception(f"Failed to link materials from '{shaders_blend_path}'")
         return None
 
-    template = _find_linked_template(shaders_blend_path, koda_group_name)
+    template = _find_template(linked_materials, koda_group_name)
     if not template:
         log.error(
             f"No linked template material found for '{koda_group_name}' from '{shaders_blend_path}' "
-            f"(loaded libraries: {[lib.filepath for lib in bpy.data.libraries]})"
+            f"(linked: {[(m.name, m.library.filepath if m.library else None) for m in linked_materials]}, "
+            f"loaded libraries: {[lib.filepath for lib in bpy.data.libraries]})"
         )
         return None
 

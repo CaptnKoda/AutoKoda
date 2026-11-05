@@ -2,7 +2,7 @@ import bpy # type: ignore
 from . import config, operators
 from .prefs import get_shaders_blend_path, get_resources_folder_path, get_anim_root_path
 from .garment_hue import color_sort_key
-from bpy.props import StringProperty # type: ignore
+from bpy.props import BoolProperty, StringProperty # type: ignore
 from bpy.types import AddonPreferences # type: ignore
 
 
@@ -127,24 +127,54 @@ class Auto_Koda_Preferences(AddonPreferences):
 
     animRootPath: StringProperty(
         name="",
-        description="Root 'anim' folder to scan recursively for subfolders containing .jba files",
+        description="Optional. Root 'anim' folder to scan recursively for subfolders containing .jba files. Leave empty to use the 'anim' folder inside the Resources Folder",
         subtype='DIR_PATH'
+    ) # type: ignore
+
+    clearCustomNormals: BoolProperty(
+        name="Clear Custom Split Normals",
+        description="Mesh Preparation removes custom split normals from selected meshes. Turn off to keep imported custom normals",
+        default=True
+    ) # type: ignore
+
+    autoSmooth: BoolProperty(
+        name="Shade Auto Smooth",
+        description="Mesh Preparation enables Shade Auto Smooth on selected meshes. Turn off to leave shading untouched",
+        default=True
+    ) # type: ignore
+
+    mergeSharpFromNormals: BoolProperty(
+        name="Merge: Sharp Edges from Normals",
+        description="Mesh Preparation merges by distance with the Edit Mode operator's 'Sharp Edges from Normals' option, turning custom normals into sharp edges. Runs before the custom normals are cleared, so it has nothing to work from if Clear Custom Split Normals is on and the mesh had none left. Uses Edit Mode briefly on each mesh",
+        default=False
     ) # type: ignore
 
     def draw(self, context):
         layout = self.layout
-        layout.label(text="Select your Shaders.blend file below")
-        layout.prop(self, "shadersPath", text="Shaders.blend Path")
 
-        layout.separator()
+        box = layout.box()
+        box.label(text="Resource Paths", icon='FILE_FOLDER')
+        box.label(text="Select your Shaders.blend file below")
+        box.prop(self, "shadersPath", text="Shaders.blend Path")
 
-        layout.label(text="Select your TOR resources extraction folder below")
-        layout.prop(self, "resourcesPath", text="Resources Folder")
+        box.separator()
 
-        layout.separator()
+        box.label(text="Select your TOR resources extraction folder below")
+        box.prop(self, "resourcesPath", text="Resources Folder")
 
-        layout.label(text="Select your SWTOR 'anim' folder below")
-        layout.prop(self, "animRootPath", text="Anim Folder")
+        box.separator()
+
+        box.label(text="Optional: override the 'anim' folder (default: <Resources Folder>/anim)")
+        box.prop(self, "animRootPath", text="Anim Folder")
+
+        box = layout.box()
+        box.label(text="Mesh Preparation Settings", icon='MESH_DATA')
+        split = box.split(factor=0.5)
+        left = split.column()
+        left.prop(self, "mergeSharpFromNormals")
+        left.prop(self, "clearCustomNormals")
+        right = split.column()
+        right.prop(self, "autoSmooth")
 
 class Auto_Koda_PT_Utilities(_AutoKodaView3DPanel, bpy.types.Panel):
     bl_label = "Utilities"
@@ -227,7 +257,7 @@ class Auto_Koda_PT_Animations(_AutoKodaView3DPanel, bpy.types.Panel):
         layout = self.layout
 
         if not get_anim_root_path():
-            _draw_missing_pref_warning(layout, "Anim Folder")
+            _draw_missing_pref_warning(layout, "Resources or Anim Folder")
 
         layout.prop_search(
             context.scene, "auto_koda_jba_folder_name",

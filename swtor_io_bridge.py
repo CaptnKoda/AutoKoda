@@ -176,16 +176,55 @@ def import_gr2_files(context, filepaths):
 # Example: import_gr2_files(context, [".../chest_tight_bmn_archetype.gr2"]) -> ([bpy.data.objects["chest_tight_bmn_archetype"]], None)
 
 
+# swtor_io_tools' own JBA import operator, whose property defaults stand in
+# for any setting its load()/build() reads that Auto_Koda_OT_ImportJBA
+# doesn't declare (e.g. one added in a newer swtor_io_tools).
+EXTERNAL_JBA_OPERATOR = "import_animation.jba"
+
+_MISSING = object()
+_warned_missing_props = set()
+
+
+def _swtor_io_jba_property_default(name):
+    """Default value of `name` on swtor_io_tools' JBA import operator, or
+    _MISSING if that operator or property can't be found."""
+    try:
+        module_name, op_name = EXTERNAL_JBA_OPERATOR.split(".")
+        prop = getattr(getattr(bpy.ops, module_name), op_name).get_rna_type().properties.get(name)
+    except Exception:
+        return _MISSING
+    if prop is None:
+        return _MISSING
+    return tuple(prop.default_array) if getattr(prop, "is_array", False) else prop.default
+# Example: _swtor_io_jba_property_default("set_scene_fps") -> False
+
+
 class _ReportLoggingOperator:
     """Stands in for an operator when handing it to swtor_io_tools, so the
     report() calls it makes -- its only record of why an import failed --
-    also reach the log. Everything else is forwarded to the operator."""
+    also reach the log. Everything else is forwarded to the operator; a
+    setting the operator doesn't declare falls back to swtor_io_tools' own
+    default for it, with a one-time warning."""
 
     def __init__(self, operator):
         self._operator = operator
 
     def __getattr__(self, name):
-        return getattr(self._operator, name)
+        try:
+            return getattr(self._operator, name)
+        except AttributeError:
+            if name.startswith("_"):
+                raise
+            default = _swtor_io_jba_property_default(name)
+            if default is _MISSING:
+                raise
+            if name not in _warned_missing_props:
+                _warned_missing_props.add(name)
+                log.warning(
+                    f"swtor_io_tools' JBA importer reads '{name}', which {type(self._operator).__name__} "
+                    f"doesn't declare, using swtor_io_tools' default ({default!r})"
+                )
+            return default
 
     def report(self, type, message):
         self._operator.log_report(type, message)
@@ -197,9 +236,11 @@ def import_jba_onto_active_armature(operator, context, filepath):
     operator.
 
     load()'s build() step reads ignore_facial_bones / delete_180 /
-    scale_animation / scale_factor straight off whatever `operator` it's
-    given, so Auto_Koda_OT_ImportJBA declares those same four properties
-    and passes itself through, alongside report().
+    scale_animation / scale_factor / set_scene_fps straight off whatever
+    `operator` it's given, so Auto_Koda_OT_ImportJBA declares those same
+    properties and passes itself through, alongside report(). Any setting
+    swtor_io_tools adds later falls back to its own default (see
+    _ReportLoggingOperator) until it's declared there too.
 
     Returns True on success, False on failure -- failures from within
     swtor_io_tools are reported by its own load()/build() through

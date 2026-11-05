@@ -2,6 +2,10 @@ import logging
 import bpy  # type: ignore
 import bmesh # type: ignore
 import math
+from .prefs import get_clear_custom_normals, get_auto_smooth, get_merge_sharp_from_normals
+
+# Merge by distance threshold, in Blender units (1e-5).
+MERGE_DISTANCE = 0.00001
 
 log = logging.getLogger(__name__)
 
@@ -43,13 +47,51 @@ def _clear_custom_normals(obj):
     return True
 
 
-def _merge_and_quadify(mesh):
-    """Merges vertices by distance, then joins triangles into quads."""
+def _merge_by_distance_keeping_sharp(obj):
+    """Merges `obj`'s vertices by distance with the Edit Mode operator's
+    use_sharp_edge_from_normals option, which is the only route to that
+    option (the bmesh op doesn't expose it, as far as I know). Changes the
+    selection and active object; the caller restores them. Returns True on
+    success."""
+    entered_edit = False
+    try:
+        for selected in list(bpy.context.selected_objects):
+            selected.select_set(False)
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+
+        bpy.ops.object.mode_set(mode='EDIT')
+        entered_edit = True
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.mesh.remove_doubles(threshold=MERGE_DISTANCE, use_sharp_edge_from_normals=True)
+        return True
+    except (RuntimeError, TypeError) as e:
+        log.warning(f"Merge by distance with sharp edges from normals failed on '{obj.name}': {e}")
+        return False
+    finally:
+        if entered_edit:
+            bpy.ops.object.mode_set(mode='OBJECT')
+# Example: _merge_by_distance_keeping_sharp(body) -> True
+
+
+def _restore_selection(selected, active):
+    """Re-selects exactly `selected` and makes `active` the active object."""
+    for obj in list(bpy.context.selected_objects):
+        obj.select_set(False)
+    for obj in selected:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = active
+
+
+def _merge_and_quadify(mesh, merge=True):
+    """Merges vertices by distance (unless `merge` is False because that
+    already happened), then joins triangles into quads."""
     bm = bmesh.new()
     try:
         bm.from_mesh(mesh)
 
-        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.00001)
+        if merge:
+            bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=MERGE_DISTANCE)
         bmesh.ops.join_triangles(
             bm,
             faces=bm.faces,
@@ -87,25 +129,47 @@ def _shade_auto_smooth(obj):
 
 
 def prepare_meshes(objects):
-    """For each mesh object: clear custom split normals data, merge
-    vertices by distance, convert triangles to quads, and enable Shade
-    Auto Smooth. A mesh that fails doesn't stop the others. Returns how
-    many meshes had every step succeed."""
-    prepared = 0
-    for obj in objects:
-        try:
-            normals_cleared = _clear_custom_normals(obj)
-            _merge_and_quadify(obj.data)
-            smoothed = _shade_auto_smooth(obj)
-        except Exception:
-            log.exception(f"Failed to prepare mesh on '{obj.name}'")
-            continue
+    """For each mesh object: merge vertices by distance (optionally keeping
+    sharp edges from custom normals), clear custom split normals data
+    (unless turned off in the addon preferences), convert triangles to
+    quads, and enable Shade Auto Smooth (unless turned off). A mesh that
+    fails doesn't stop the others. Returns how many meshes had every step
+    succeed."""
+    clear_normals = get_clear_custom_normals()
+    use_auto_smooth = get_auto_smooth()
+    merge_sharp = get_merge_sharp_from_normals()
+    if not clear_normals:
+        log.info("Clear Custom Split Normals is off in preferences, keeping custom normals")
+    if not use_auto_smooth:
+        log.info("Shade Auto Smooth is off in preferences, leaving shading untouched")
 
-        if normals_cleared and smoothed:
-            prepared += 1
-            log.info(f"Prepared mesh on '{obj.name}'")
-        else:
-            log.warning(f"Mesh on '{obj.name}' only partly prepared (normals cleared: {normals_cleared}, auto smooth: {smoothed})")
+    prev_selected = list(bpy.context.selected_objects)
+    prev_active = bpy.context.view_layer.objects.active
+
+    prepared = 0
+    try:
+        for obj in objects:
+            try:
+                # Before the normals are cleared, so they can become sharp edges
+                merged_with_sharp = merge_sharp and _merge_by_distance_keeping_sharp(obj)
+                normals_cleared = _clear_custom_normals(obj) if clear_normals else True
+                _merge_and_quadify(obj.data, merge=not merged_with_sharp)
+                smoothed = _shade_auto_smooth(obj) if use_auto_smooth else True
+            except Exception:
+                log.exception(f"Failed to prepare mesh on '{obj.name}'")
+                continue
+
+            if normals_cleared and smoothed and (merged_with_sharp or not merge_sharp):
+                prepared += 1
+                log.info(f"Prepared mesh on '{obj.name}'")
+            else:
+                log.warning(
+                    f"Mesh on '{obj.name}' only partly prepared (normals cleared: {normals_cleared}, "
+                    f"auto smooth: {smoothed}, sharp-edge merge: {merged_with_sharp if merge_sharp else 'off'})"
+                )
+    finally:
+        if merge_sharp:
+            _restore_selection(prev_selected, prev_active)
 
     return prepared
 # Example: prepare_meshes([body, head, cape]) -> 3

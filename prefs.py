@@ -83,6 +83,38 @@ def get_shaders_blend_path():
 # Example: get_shaders_blend_path() -> "/home/koda/.config/blender/extensions/user_default/autokoda/res/Shaders.blend"
 
 
+def _get_pref_bool(prop_name, label, default):
+    """Reads a boolean preference from this addon's preferences, returning
+    `default` if the preferences can't be read."""
+    try:
+        value = bool(getattr(bpy.context.preferences.addons[__package__].preferences, prop_name))
+    except Exception as e:
+        _note_problem(prop_name, f"Could not retrieve {label} from preferences, defaulting to {default}: {type(e).__name__}: {e}", exc_info=True)
+        return default
+    _note_problem(prop_name)
+    return value
+# Example: _get_pref_bool("autoSmooth", "auto smooth", True) -> True
+
+
+def get_clear_custom_normals():
+    """True if Mesh Preparation should clear custom split normals."""
+    return _get_pref_bool("clearCustomNormals", "clear custom normals", True)
+# Example: get_clear_custom_normals() -> True
+
+
+def get_auto_smooth():
+    """True if Mesh Preparation should enable Shade Auto Smooth."""
+    return _get_pref_bool("autoSmooth", "auto smooth", True)
+# Example: get_auto_smooth() -> True
+
+
+def get_merge_sharp_from_normals():
+    """True if Mesh Preparation's merge by distance should use the Edit Mode
+    operator's 'Sharp Edges from Normals' option."""
+    return _get_pref_bool("mergeSharpFromNormals", "merge sharp edges from normals", False)
+# Example: get_merge_sharp_from_normals() -> False
+
+
 def _get_external_resources_path():
     """Attempts to read the resources folder path from zg_swtor_tools, if
     it's installed and enabled. Returns None if unavailable for any reason."""
@@ -124,7 +156,25 @@ def get_resources_folder_path():
 
 
 def get_anim_root_path():
-    """Returns the configured 'anim' root folder for the Animations
-    panel, or None if unset/invalid."""
-    return _existing_dir(_get_pref_string("animRootPath", "anim root path"), "anim root folder")
+    """Returns the 'anim' root folder for the Animations panel: the Anim
+    Folder override if one is set, otherwise the 'anim' folder inside the
+    resources folder. None if neither gives an existing folder. An override
+    that doesn't exist is reported rather than silently replaced by the
+    default."""
+    override_label = "anim root folder (Anim Folder override)"
+    default_label = "anim root folder (resources folder/anim)"
+
+    override = _get_pref_string("animRootPath", "anim root path")
+    if override:
+        _note_problem("anim root default")
+        _note_problem(default_label)
+        return _existing_dir(override, override_label)
+    _note_problem(override_label)
+
+    resources = get_resources_folder_path()
+    if not resources:
+        _note_problem("anim root default", "Anim Folder is not set and there is no valid resources folder to default to")
+        return None
+    _note_problem("anim root default")
+    return _existing_dir(os.path.join(resources, "anim"), default_label)
 # Example: get_anim_root_path() -> "/home/koda/SWTOR/resources/anim"
