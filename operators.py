@@ -131,7 +131,7 @@ class Auto_Koda_OT_ToggleSubsurfViewport(LoggedOperator, bpy.types.Operator):
 class Auto_Koda_OT_PrepareMeshes(LoggedOperator, bpy.types.Operator):
     bl_idname = "autokoda.prepare_meshes"
     bl_label = "Mesh Preparation"
-    bl_description = "Merge by distance, convert tris to quads, and clear custom split normals on selected meshes"
+    bl_description = "Merge by distance, convert tris to quads, enable auto smooth and clear custom split normals on selected meshes (auto smooth, normals clearing and sharp-edge merging are set in the addon preferences)"
     bl_options = {'REGISTER', 'UNDO'}
 
     @logged_execute
@@ -251,6 +251,11 @@ class Auto_Koda_OT_ImportJBA(LoggedOperator, bpy.types.Operator):
         soft_min=0.1,
         soft_max=2.0,
         precision=2,
+    )  # type: ignore
+    set_scene_fps: BoolProperty(
+        name="Set Scene to 30 FPS",
+        description="Sets the scene's frame rate to 30 fps on import, so the animation plays at its real speed",
+        default=False,
     )  # type: ignore
 
     @classmethod
