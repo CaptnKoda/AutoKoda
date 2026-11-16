@@ -1,6 +1,6 @@
 import logging
 import bpy # type: ignore
-from bpy.props import BoolProperty, FloatProperty  # type: ignore
+from bpy.props import BoolProperty, EnumProperty, FloatProperty  # type: ignore
 from . import animations, garment_hue, ipp_resolver
 from .logging_setup import LoggedOperator, logged_execute
 from .prefs import get_resources_folder_path
@@ -8,7 +8,8 @@ from .conversion import process_object
 from .overrides import run_override_sync
 from .mesh_utils import toggle_subsurf_viewport_display, prepare_meshes, assign_material_name
 from .garment_hue_xml import apply_palette_to_objects
-from .swtor_io_bridge import build_named_materials_for_objects, import_gr2_files, import_jba_onto_active_armature
+from .swtor_io_bridge import (build_named_materials_for_objects, import_gr2_files, import_jba_onto_active_armature,
+                              get_swtor_io_jba_pref_defaults)
 
 log = logging.getLogger(__name__)
 
@@ -224,20 +225,84 @@ class Auto_Koda_OT_RefreshJBAList(LoggedOperator, bpy.types.Operator):
 class Auto_Koda_OT_ImportJBA(LoggedOperator, bpy.types.Operator):
     bl_idname = "autokoda.import_jba"
     bl_label = "Import JBA"
-    bl_description = "Import the selected .jba animation onto the active armature"
+    bl_description = "Import the selected .jba animation onto the active armature.\nDefaults come from swtor_io_tools' JBA preferences; change them afterwards in the Adjust Last Operation panel (F9)"
     bl_options = {'REGISTER', 'UNDO'}
 
     # Same properties import_jba.py's build() reads off the operator it's
-    # given -- see import_jba_onto_active_armature() for why these live
-    # here rather than being pulled from swtor_io_tools' own preferences.
+    # given -- see import_jba_onto_active_armature(). Defaults for the ones
+    # swtor_io_tools has preferences for are copied from those in invoke(),
+    # like its own importer does; tweak them afterwards in the Adjust Last
+    # Operation panel.
+    animation_type: EnumProperty(
+        name="Animation Type",
+        description="Whether the .jba holds bone poses or offsets to add on top of a pose",
+        items=(
+            ('AUTO', "Auto-Detect",
+             "Additive if the file's name starts with 'ad_' (SWTOR's naming for them).\n"
+             "Warns if the file's data clearly disagrees with its name"),
+            ('ABSOLUTE', "Absolute", "The animation holds full bone poses (most animations)"),
+            ('ADDITIVE', "Additive",
+             "The animation holds offsets added on top of a pose (e.g. 'ad_' facial expressions\n"
+             "and aim offsets), layered over other NLA tracks with 'Combine' blending"),
+        ),
+        default='AUTO',
+    )  # type: ignore
     ignore_facial_bones: BoolProperty(
-        name="Ignore Facial Transl.",
-        description="Ignores the data in the facial bones' translation keyframes and only uses their rotation keyframes",
+        name="Ignore Face Bones",
+        description="Ignores the facial bones' translation keyframes and only uses their rotation keyframes.\n\n"
+                    "Absolute animations only: in additive ones, facial translations are part of the expression",
         default=True,
     )  # type: ignore
     delete_180: BoolProperty(
         name="Delete 180° Rotation",
         description="Deletes Bip01's rotation keyframes and zeroes its rotation, instead of the character turning 180° to face away from camera",
+        default=False,
+    )  # type: ignore
+    import_as_nla: BoolProperty(
+        name="Import as NLA Track",
+        description="Imports the animation into its own NLA track instead of replacing the armature's active action "
+                    "(which is pushed down into an NLA track first). Additive animations go on top with 'Combine' blending.\n\n"
+                    "Off: plain keyframes in a new active action",
+        default=True,
+    )  # type: ignore
+    repair_broken_frames: BoolProperty(
+        name="Repair Broken Frames",
+        description="Fixes single frames where a shoulder or hip spins a full 360° (an error in the game's data), "
+                    "replacing those bones' rotations with the halfway point between the frames either side. "
+                    "Additive animations are never changed",
+        default=False,
+    )  # type: ignore
+    fit_to_armature: BoolProperty(
+        name="Fit to Armature's Proportions",
+        description="Many SWTOR animations were made for a different body type than the one they're filed under. "
+                    "This finds the body each animation was made for (from the skeletons in the Resources Directory's "
+                    "art/dynamic/spec folder) and converts its bone translations to the armature's own proportions. "
+                    "Additive animations are never changed.\n\nOff: bone translations are used as stored",
+        default=True,
+    )  # type: ignore
+    cyclic_loops: BoolProperty(
+        name="Loop Looping Animations",
+        description="Animations the game plays as loops (e.g. idles) get a cyclic action: Cycles modifiers on their "
+                    "F-curves and a cyclic frame range, so they repeat when played past their end.\n\n"
+                    "Off: looping animations play once, like the others",
+        default=True,
+    )  # type: ignore
+    masked_bones_only: BoolProperty(
+        name="Masked Bones Only",
+        description="For animations the game plays on part of the body (a bone mask such as 'upperbody'), keys only "
+                    "the mask's bones, so the action can be layered over a locomotion action in the NLA. "
+                    "Masked imports are named as such: 'em_wave_[masked_upperbody]'.\n\nOff: every bone in the clip is keyed",
+        default=False,
+    )  # type: ignore
+    set_scene_fps: BoolProperty(
+        name="Set Scene FPS to 30",
+        description="Sets the scene's frame rate to 30 fps, so every keyframe lands on a whole frame. "
+                    "Keyframes are placed at their real time either way.\n\nThis changes the whole scene, including cloth simulations",
+        default=False,
+    )  # type: ignore
+    set_frame_range: BoolProperty(
+        name="Set Frame Range to Animation",
+        description="Sets the scene's Start and End frames to the animation's length",
         default=False,
     )  # type: ignore
     scale_animation: BoolProperty(
@@ -252,11 +317,40 @@ class Auto_Koda_OT_ImportJBA(LoggedOperator, bpy.types.Operator):
         soft_max=2.0,
         precision=2,
     )  # type: ignore
-    set_scene_fps: BoolProperty(
-        name="Set Scene to 30 FPS",
-        description="Sets the scene's frame rate to 30 fps on import, so the animation plays at its real speed",
-        default=False,
-    )  # type: ignore
+
+    def invoke(self, context, event):
+        for name, value in get_swtor_io_jba_pref_defaults(context).items():
+            setattr(self, name, value)
+        return self.execute(context)
+    # Example: invoke(context, event) -> {'FINISHED'}  (with swtor_io_tools' JBA preference defaults applied)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        header, body = layout.panel("AUTOKODA_JBA_options", default_closed=False)
+        header.label(text="Import Options")
+        if body:
+            body.prop(self, "animation_type")
+            body.prop(self, "ignore_facial_bones")
+            body.prop(self, "delete_180")
+            body.prop(self, "import_as_nla")
+            body.prop(self, "repair_broken_frames")
+            body.prop(self, "fit_to_armature")
+            body.prop(self, "cyclic_loops")
+            body.prop(self, "masked_bones_only")
+            body.prop(self, "set_scene_fps")
+            body.prop(self, "set_frame_range")
+
+        header, body = layout.panel("AUTOKODA_JBA_scale", default_closed=True)
+        header.label(text="Import Scale")
+        if body:
+            body.prop(self, "scale_animation")
+            row = body.row()
+            row.enabled = self.scale_animation
+            row.prop(self, "scale_factor")
+    # Example: draw(context) -> None  (Adjust Last Operation panel)
 
     @classmethod
     def poll(cls, context):

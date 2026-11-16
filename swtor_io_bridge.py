@@ -15,11 +15,32 @@ from .prefs import is_addon_enabled
 log = logging.getLogger(__name__)
 
 
+def _addon_failed_to_load():
+    """True if swtor_io_tools is enabled in the preferences but its code
+    isn't actually loaded -- what happens when its register()/imports
+    raise on startup. Blender still lists such an addon as enabled, but
+    none of its operators or preferences exist."""
+    try:
+        import addon_utils  # type: ignore
+        _, loaded = addon_utils.check(EXTERNAL_SWTOR_IO_ADDON_MODULE)
+        return not loaded
+    except Exception:
+        log.debug("addon_utils.check() unavailable, assuming swtor_io_tools loaded", exc_info=True)
+        return False
+# Example: _addon_failed_to_load() -> True  (its __init__.py raised ModuleNotFoundError on startup)
+
+
 def _addon_missing_error():
-    """Returns an error message if swtor_io_tools isn't enabled, else None."""
-    if is_addon_enabled(EXTERNAL_SWTOR_IO_ADDON_MODULE):
-        return None
-    return f"'{EXTERNAL_SWTOR_IO_ADDON_MODULE}' addon is not installed/enabled"
+    """Returns an error message if swtor_io_tools isn't enabled and
+    loaded, else None."""
+    if not is_addon_enabled(EXTERNAL_SWTOR_IO_ADDON_MODULE):
+        return f"'{EXTERNAL_SWTOR_IO_ADDON_MODULE}' addon is not installed/enabled"
+    if _addon_failed_to_load():
+        message = (f"'{EXTERNAL_SWTOR_IO_ADDON_MODULE}' is enabled but failed to load - its own startup "
+                   f"error is in Blender's console (search for '{EXTERNAL_SWTOR_IO_ADDON_MODULE}')")
+        log.error(message)
+        return message
+    return None
 # Example: _addon_missing_error() -> None
 
 
@@ -109,7 +130,6 @@ _GR2_PREF_TO_OPERATOR_PROP = {
     "gr2_apply_axis_conversion"          : "apply_axis_conversion",
     "gr2_scale_object"                   : "scale_object",
     "gr2_scale_factor"                   : "scale_factor",
-    "gr2_blender_friendly_skeleton"      : "blender_friendly_skeleton",
     "gr2_apply_materials_by_name_default": "apply_materials_by_name",
 }
 
@@ -199,6 +219,37 @@ def _swtor_io_jba_property_default(name):
 # Example: _swtor_io_jba_property_default("set_scene_fps") -> False
 
 
+# Settings of swtor_io_tools' JBA importer whose defaults come from its
+# add-on preferences, as (operator property, preference property) -- the
+# same pairs its own ImportJBA.invoke() copies over.
+JBA_SETTINGS_FROM_PREFS = (
+    ("ignore_facial_bones", "jba_ignore_facial_bones"),
+    ("delete_180", "jba_delete_180"),
+    ("import_as_nla", "jba_import_as_nla"),
+    ("repair_broken_frames", "jba_repair_broken_frames"),
+    ("fit_to_armature", "jba_fit_to_armature"),
+    ("cyclic_loops", "jba_cyclic_loops"),
+    ("masked_bones_only", "jba_masked_bones_only"),
+    ("scale_animation", "gr2_scale_object"),
+    ("scale_factor", "gr2_scale_factor"),
+)
+
+
+def get_swtor_io_jba_pref_defaults(context):
+    """Returns {operator property: value} for every JBA import setting
+    swtor_io_tools' preferences set a default for, or {} if they can't
+    be read. A preference missing from an older/newer swtor_io_tools is
+    simply left out."""
+    try:
+        prefs = context.preferences.addons[EXTERNAL_SWTOR_IO_ADDON_MODULE].preferences
+    except Exception:
+        return {}
+    return {op_prop: getattr(prefs, pref_prop)
+            for op_prop, pref_prop in JBA_SETTINGS_FROM_PREFS
+            if hasattr(prefs, pref_prop)}
+# Example: get_swtor_io_jba_pref_defaults(context) -> {"ignore_facial_bones": True, "delete_180": False, ...}
+
+
 class _ReportLoggingOperator:
     """Stands in for an operator when handing it to swtor_io_tools, so the
     report() calls it makes -- its only record of why an import failed --
@@ -235,9 +286,11 @@ def import_jba_onto_active_armature(operator, context, filepath):
     against `filepath`, bypassing its File Browser-based ImportJBA
     operator.
 
-    load()'s build() step reads ignore_facial_bones / delete_180 /
-    scale_animation / scale_factor / set_scene_fps straight off whatever
-    `operator` it's given, so Auto_Koda_OT_ImportJBA declares those same
+    load()'s build() step reads its import settings (animation_type,
+    ignore_facial_bones, delete_180, import_as_nla, repair_broken_frames,
+    fit_to_armature, cyclic_loops, masked_bones_only, set_scene_fps,
+    set_frame_range, scale_animation, scale_factor)
+    straight off whatever `operator` it's given, so Auto_Koda_OT_ImportJBA declares those same
     properties and passes itself through, alongside report(). Any setting
     swtor_io_tools adds later falls back to its own default (see
     _ReportLoggingOperator) until it's declared there too.
